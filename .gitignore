@@ -219,3 +219,6 @@ __marimo__/
 
 # qoder生成的wiki
 .qoder/
+
+# 技能生成的.superpowers
+.superpowers/
