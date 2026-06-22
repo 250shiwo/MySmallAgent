@@ -1,6 +1,10 @@
 """Tool registry - central place to register and retrieve tools."""
 
 from my_small_agent.tools.base import Tool
+from my_small_agent.tools.file_read import ReadFileTool
+from my_small_agent.tools.file_write import WriteFileTool
+from my_small_agent.tools.list_dir import ListDirectoryTool
+from my_small_agent.tools.shell_exec import ExecuteShellTool
 
 
 class ToolRegistry:
@@ -34,4 +38,13 @@ class ToolRegistry:
     def list_all(self) -> list[Tool]:
         """Return a list of all registered tools."""
         return list(self._tools.values())
-"""Tool registry and built-in tools."""
+
+
+def create_default_registry() -> ToolRegistry:
+    """Create a registry with all built-in tools registered."""
+    registry = ToolRegistry()
+    registry.register(ReadFileTool())
+    registry.register(WriteFileTool())
+    registry.register(ListDirectoryTool())
+    registry.register(ExecuteShellTool())
+    return registry
