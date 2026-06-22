@@ -29,7 +29,7 @@ class CLI:
 
     职责：
       - 读取用户输入（prompt_toolkit）
-      - 解析斜杠命令（/help, /clear, /exit）
+      - 解析斜杠命令（/help, /tools, /clear, /exit）
       - 将自然语言转发给 Agent
       - 美化显示 Agent 的回复（rich）
     """
@@ -125,6 +125,7 @@ class CLI:
 
         支持的命令：
           /help  → 显示帮助信息
+          /tools → 列出所有已注册工具
           /clear → 清空对话历史
           /exit  → 退出程序
         """
@@ -133,6 +134,8 @@ class CLI:
 
         if cmd == "/help":
             self._print_help()
+        elif cmd == "/tools":
+            self._print_tools()
         elif cmd == "/clear":
             self.agent.clear_history()
             self.console.print("[green]Conversation history cleared.[/green]")
@@ -151,6 +154,7 @@ class CLI:
                 "[bold]MySmallAgent[/bold] - Your CLI assistant\n\n"
                 "Type your message to chat, or use commands:\n"
                 "  /help  - Show help\n"
+                "  /tools - List available tools\n"
                 "  /clear - Clear history\n"
                 "  /exit  - Exit",
                 title="Welcome",
@@ -165,6 +169,7 @@ class CLI:
             Panel(
                 "[bold]Available Commands:[/bold]\n\n"
                 "  [cyan]/help[/cyan]   - Show this help message\n"
+                "  [cyan]/tools[/cyan]  - List all registered tools\n"
                 "  [cyan]/clear[/cyan]  - Clear conversation history\n"
                 "  [cyan]/exit[/cyan]   - Exit the program\n\n"
                 "[bold]Tips:[/bold]\n"
@@ -172,5 +177,31 @@ class CLI:
                 "  • The agent can read/write files, list directories, and run shell commands",
                 title="Help",
                 border_style="green",
+            )
+        )
+
+    def _print_tools(self) -> None:
+        """列出所有已注册的工具，展示名称、描述和安全级别。"""
+        tools = self.agent.registry.list_all()
+        if not tools:
+            self.console.print("[yellow]No tools registered.[/yellow]")
+            return
+
+        lines = []
+        for tool in tools:
+            # 安全级别用不同颜色标记：safe=绿色，dangerous=黄色
+            level_color = "green" if tool.danger_level == "safe" else "yellow"
+            level_label = "safe" if tool.danger_level == "safe" else "dangerous"
+            lines.append(
+                f"  [bold]{tool.name}[/bold]  "
+                f"[{level_color}][{level_label}][/{level_color}]\n"
+                f"    [dim]{tool.description}[/dim]"
+            )
+
+        self.console.print(
+            Panel(
+                "\n\n".join(lines),
+                title=f"Registered Tools ({len(tools)})",
+                border_style="cyan",
             )
         )
