@@ -72,7 +72,7 @@ class TestLLMClient:
         )
 
         call_kwargs = client.client.chat.completions.create.call_args[1]
-        assert call_kwargs["thinking"] == {"type": "enabled"}
+        assert call_kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
     @pytest.mark.asyncio
     async def test_chat_without_thinking(self, mock_settings):
@@ -88,6 +88,7 @@ class TestLLMClient:
 
         call_kwargs = client.client.chat.completions.create.call_args[1]
         assert "thinking" not in call_kwargs
+        assert "extra_body" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_chat_stream_returns_stream(self, mock_settings):
@@ -103,5 +104,5 @@ class TestLLMClient:
 
         call_kwargs = client.client.chat.completions.create.call_args[1]
         assert call_kwargs["stream"] is True
-        assert call_kwargs["thinking"] == {"type": "enabled"}
+        assert call_kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
         assert result is mock_stream

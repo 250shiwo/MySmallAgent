@@ -61,9 +61,9 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
 
-        # DeepSeek Thinking：通过 thinking 参数启用
+        # DeepSeek Thinking：通过 extra_body 传递 thinking 参数
         if thinking_enabled:
-            kwargs["thinking"] = {"type": "enabled"}
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         # 流式输出
         if stream:
