@@ -39,6 +39,7 @@ class CLI:
         self.console = Console()            # rich 的控制台，负责美化输出
         self.session: PromptSession = PromptSession()  # prompt_toolkit 的输入会话
         self._running = True                # REPL 循环的控制标志
+        self._detail_enabled = False        # 思维链详情展示开关（默认折叠）
 
     async def run(self) -> None:
         """
@@ -88,10 +89,14 @@ class CLI:
             )
 
         self.console.print()
-        # 如果有 thinking 内容，先展示
+        # 思维链展示：detail 开启时显示全文，关闭时只显示提示行
         if response.thinking:
-            self.console.print(f"[dim]💭 {response.thinking}[/dim]")
-            self.console.print()
+            if self._detail_enabled:
+                self.console.print(f"[dim]💭 {response.thinking}[/dim]")
+                self.console.print()
+            else:
+                self.console.print("[dim]💭 thinking...[/dim]")
+                self.console.print()
         # 用 rich 的 Markdown 渲染模型回复（支持代码高亮、列表等）
         self.console.print(Markdown(response.content))
         self.console.print()
@@ -100,21 +105,32 @@ class CLI:
         """流式模式：逐 chunk 打印到终端。"""
         self.console.print()
         in_thinking = False
+        thinking_buffer = ""  # detail 关闭时缓冲思维链内容
 
         async for event_type, content in self.agent.run_turn_stream(
             user_input, self._confirm_dangerous_action
         ):
             if event_type == "thinking":
-                if not in_thinking:
-                    self.console.print("[dim]💭 ", end="")
-                    in_thinking = True
-                self.console.print(f"[dim]{content}[/dim]", end="")
+                if self._detail_enabled:
+                    # detail 开启：实时展示思维链
+                    if not in_thinking:
+                        self.console.print("[dim]💭 ", end="")
+                        in_thinking = True
+                    self.console.print(f"[dim]{content}[/dim]", end="")
+                else:
+                    # detail 关闭：只缓冲，不输出
+                    thinking_buffer += content
 
             elif event_type == "content":
-                if in_thinking:
+                if self._detail_enabled and in_thinking:
                     self.console.print()  # 结束 thinking 行
                     self.console.print()
                     in_thinking = False
+                elif not self._detail_enabled and thinking_buffer:
+                    # detail 关闭时显示折叠提示
+                    self.console.print("[dim]💭 thinking...[/dim]")
+                    self.console.print()
+                    thinking_buffer = ""  # 已显示提示，清空缓冲
                 self.console.print(content, end="")
 
         # 结尾换行
@@ -162,6 +178,7 @@ class CLI:
           /tools  → 列出所有已注册工具
           /stream → 切换流式输出
           /think  → 切换思维链模式
+          /detail → 切换思维链详情展示（默认折叠）
           /status → 显示当前设置
           /clear  → 清空对话历史
           /exit   → 退出程序
@@ -177,6 +194,8 @@ class CLI:
             self._toggle_stream()
         elif cmd == "/think":
             self._toggle_think()
+        elif cmd == "/detail":
+            self._toggle_detail()
         elif cmd == "/status":
             self._print_status()
         elif cmd == "/clear":
@@ -204,15 +223,23 @@ class CLI:
             self.agent.strip_thinking_from_history()
         self.console.print(f"[cyan]思维链模式已{state}[/cyan]")
 
+    def _toggle_detail(self) -> None:
+        """切换思维链详情展示开关。"""
+        self._detail_enabled = not self._detail_enabled
+        state = "展开" if self._detail_enabled else "折叠"
+        self.console.print(f"[cyan]思维链详情已{state}[/cyan]")
+
     def _print_status(self) -> None:
         """显示当前 Agent 状态。"""
         streaming = "[green]开启[/green]" if self.agent.streaming_enabled else "[red]关闭[/red]"
         thinking = "[green]开启[/green]" if self.agent.thinking_enabled else "[red]关闭[/red]"
+        detail = "[green]展开[/green]" if self._detail_enabled else "[dim]折叠[/dim]"
         self.console.print(
             Panel(
-                f"  模型:     [bold]{self.agent.llm.model}[/bold]\n"
-                f"  流式输出: {streaming}\n"
-                f"  思维链:   {thinking}",
+                f"  模型:       [bold]{self.agent.llm.model}[/bold]\n"
+                f"  流式输出:   {streaming}\n"
+                f"  思维链:     {thinking}\n"
+                f"  详情展示:   {detail}",
                 title="当前状态",
                 border_style="cyan",
             )
@@ -228,6 +255,7 @@ class CLI:
                 "  /tools  - List available tools\n"
                 "  /stream - Toggle streaming output\n"
                 "  /think  - Toggle thinking mode\n"
+                "  /detail - Toggle thinking detail view\n"
                 "  /status - Show current settings\n"
                 "  /clear  - Clear history\n"
                 "  /exit   - Exit",
@@ -246,6 +274,7 @@ class CLI:
                 "  [cyan]/tools[/cyan]  - List all registered tools\n"
                 "  [cyan]/stream[/cyan] - Toggle streaming output\n"
                 "  [cyan]/think[/cyan]  - Toggle thinking mode\n"
+                "  [cyan]/detail[/cyan] - Toggle thinking detail view\n"
                 "  [cyan]/status[/cyan] - Show current settings\n"
                 "  [cyan]/clear[/cyan]  - Clear conversation history\n"
                 "  [cyan]/exit[/cyan]   - Exit the program\n\n"
