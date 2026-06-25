@@ -72,11 +72,14 @@ class CLI:
                 self.console.print("\n[dim]Goodbye![/dim]")
 
     async def _run_agent_turn(self, user_input: str) -> None:
-        """
-        执行一轮 Agent 对话，并显示加载动画。
+        """根据 streaming 状态选择流式或非流式对话。"""
+        if self.agent.streaming_enabled:
+            await self._run_agent_turn_stream(user_input)
+        else:
+            await self._run_agent_turn_normal(user_input)
 
-        流程：显示 "Thinking..." → 调用 Agent → 用 Markdown 渲染回复
-        """
+    async def _run_agent_turn_normal(self, user_input: str) -> None:
+        """非流式模式：等待完整响应后渲染。"""
         # Status: rich 的加载动画，在等待 LLM 时显示旋转图标
         with Status("[bold cyan]Thinking...", console=self.console):
             response = await self.agent.run_turn(
@@ -84,9 +87,40 @@ class CLI:
                 confirm_callback=self._confirm_dangerous_action,
             )
 
-        # 用 rich 的 Markdown 渲染模型回复（支持代码高亮、列表等）
         self.console.print()
-        self.console.print(Markdown(response))
+        # 如果有 thinking 内容，先展示
+        if response.thinking:
+            self.console.print(f"[dim]💭 {response.thinking}[/dim]")
+            self.console.print()
+        # 用 rich 的 Markdown 渲染模型回复（支持代码高亮、列表等）
+        self.console.print(Markdown(response.content))
+        self.console.print()
+
+    async def _run_agent_turn_stream(self, user_input: str) -> None:
+        """流式模式：逐 chunk 打印到终端。"""
+        self.console.print()
+        in_thinking = False
+
+        async for event_type, content in self.agent.run_turn_stream(
+            user_input, self._confirm_dangerous_action
+        ):
+            if event_type == "thinking":
+                if not in_thinking:
+                    self.console.print("[dim]💭 ", end="")
+                    in_thinking = True
+                self.console.print(f"[dim]{content}[/dim]", end="")
+
+            elif event_type == "content":
+                if in_thinking:
+                    self.console.print()  # 结束 thinking 行
+                    self.console.print()
+                    in_thinking = False
+                self.console.print(content, end="")
+
+        # 结尾换行
+        if in_thinking:
+            self.console.print()
+        self.console.print()
         self.console.print()
 
     async def _confirm_dangerous_action(
@@ -124,10 +158,13 @@ class CLI:
         解析并执行斜杠命令。
 
         支持的命令：
-          /help  → 显示帮助信息
-          /tools → 列出所有已注册工具
-          /clear → 清空对话历史
-          /exit  → 退出程序
+          /help   → 显示帮助信息
+          /tools  → 列出所有已注册工具
+          /stream → 切换流式输出
+          /think  → 切换思维链模式
+          /status → 显示当前设置
+          /clear  → 清空对话历史
+          /exit   → 退出程序
         """
         # 取命令的第一部分（忽略参数）并转小写
         cmd = command.lower().split()[0]
@@ -136,6 +173,12 @@ class CLI:
             self._print_help()
         elif cmd == "/tools":
             self._print_tools()
+        elif cmd == "/stream":
+            self._toggle_stream()
+        elif cmd == "/think":
+            self._toggle_think()
+        elif cmd == "/status":
+            self._print_status()
         elif cmd == "/clear":
             self.agent.clear_history()
             self.console.print("[green]Conversation history cleared.[/green]")
@@ -147,16 +190,47 @@ class CLI:
                 f"[red]Unknown command: {cmd}[/red]. Type /help for available commands."
             )
 
+    def _toggle_stream(self) -> None:
+        """切换流式输出开关。"""
+        self.agent.streaming_enabled = not self.agent.streaming_enabled
+        state = "开启" if self.agent.streaming_enabled else "关闭"
+        self.console.print(f"[cyan]流式输出已{state}[/cyan]")
+
+    def _toggle_think(self) -> None:
+        """切换思维链模式开关。"""
+        self.agent.thinking_enabled = not self.agent.thinking_enabled
+        state = "开启" if self.agent.thinking_enabled else "关闭"
+        if not self.agent.thinking_enabled:
+            self.agent.strip_thinking_from_history()
+        self.console.print(f"[cyan]思维链模式已{state}[/cyan]")
+
+    def _print_status(self) -> None:
+        """显示当前 Agent 状态。"""
+        streaming = "[green]开启[/green]" if self.agent.streaming_enabled else "[red]关闭[/red]"
+        thinking = "[green]开启[/green]" if self.agent.thinking_enabled else "[red]关闭[/red]"
+        self.console.print(
+            Panel(
+                f"  模型:     [bold]{self.agent.llm.model}[/bold]\n"
+                f"  流式输出: {streaming}\n"
+                f"  思维链:   {thinking}",
+                title="当前状态",
+                border_style="cyan",
+            )
+        )
+
     def _print_welcome(self) -> None:
         """启动时显示欢迎面板，介绍可用命令。"""
         self.console.print(
             Panel(
                 "[bold]MySmallAgent[/bold] - Your CLI assistant\n\n"
                 "Type your message to chat, or use commands:\n"
-                "  /help  - Show help\n"
-                "  /tools - List available tools\n"
-                "  /clear - Clear history\n"
-                "  /exit  - Exit",
+                "  /help   - Show help\n"
+                "  /tools  - List available tools\n"
+                "  /stream - Toggle streaming output\n"
+                "  /think  - Toggle thinking mode\n"
+                "  /status - Show current settings\n"
+                "  /clear  - Clear history\n"
+                "  /exit   - Exit",
                 title="Welcome",
                 border_style="blue",
             )
@@ -170,11 +244,14 @@ class CLI:
                 "[bold]Available Commands:[/bold]\n\n"
                 "  [cyan]/help[/cyan]   - Show this help message\n"
                 "  [cyan]/tools[/cyan]  - List all registered tools\n"
+                "  [cyan]/stream[/cyan] - Toggle streaming output\n"
+                "  [cyan]/think[/cyan]  - Toggle thinking mode\n"
+                "  [cyan]/status[/cyan] - Show current settings\n"
                 "  [cyan]/clear[/cyan]  - Clear conversation history\n"
                 "  [cyan]/exit[/cyan]   - Exit the program\n\n"
                 "[bold]Tips:[/bold]\n"
                 "  • Press Ctrl+C or Ctrl+D to exit\n"
-                "  • The agent can read/write files, list directories, and run shell commands",
+                "  • The agent can read/write files, search the web, and run shell commands",
                 title="Help",
                 border_style="green",
             )
