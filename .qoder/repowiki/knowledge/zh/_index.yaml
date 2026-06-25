@@ -1,0 +1,101 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-06-25T03:37:47Z"
+modules:
+    "":
+        dir_name: CLI 智能体核心引擎
+        title: CLI 智能体核心引擎
+        scope:
+            - docs/
+            - .gitignore
+            - README.md
+            - docs\superpowers\plans\2026-06-22-agent-core.md
+            - docs\superpowers\specs\2026-06-22-agent-core-design.md
+        source_files: []
+        children:
+            - my_small_agent
+            - tests
+        depends_on: []
+        related_to: []
+    build_system:
+        dir_name: 基于 uv 和 Hatchling 的现代化 Python 构建系统
+        title: 基于 uv 和 Hatchling 的现代化 Python 构建系统
+        scope: []
+        source_files:
+            - pyproject.toml
+            - uv.lock
+            - my_small_agent/__main__.py
+            - .env.example
+        children: []
+        depends_on: []
+        related_to: []
+    configuration_system:
+        dir_name: 基于 pydantic-settings 的环境变量配置系统_2
+        title: 基于 pydantic-settings 的环境变量配置系统
+        scope: []
+        source_files:
+            - my_small_agent/config.py
+            - .env.example
+            - pyproject.toml
+            - tests/test_config.py
+            - my_small_agent/__main__.py
+        children: []
+        depends_on: []
+        related_to: []
+    dependency_management:
+        dir_name: 基于 uv 的 Python 依赖管理
+        title: 基于 uv 的 Python 依赖管理
+        scope: []
+        source_files:
+            - pyproject.toml
+            - uv.lock
+            - .gitignore
+        children: []
+        depends_on: []
+        related_to: []
+    error_handling:
+        dir_name: 分层错误处理与异常恢复机制
+        title: 分层错误处理与异常恢复机制
+        scope: []
+        source_files:
+            - my_small_agent/__main__.py
+            - my_small_agent/agent.py
+            - my_small_agent/cli.py
+            - my_small_agent/tools/base.py
+            - my_small_agent/tools/file_read.py
+            - my_small_agent/tools/shell_exec.py
+            - .qoder/repowiki/zh/content/架构设计/错误处理.md
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_style:
+        dir_name: CLI 终端交互风格
+        title: CLI 终端交互风格
+        scope: []
+        source_files:
+            - my_small_agent/cli.py
+            - pyproject.toml
+        children: []
+        depends_on: []
+        related_to: []
+    my_small_agent:
+        dir_name: CLI智能体核心引擎
+        title: CLI智能体核心引擎
+        scope:
+            - my_small_agent/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    tests:
+        dir_name: 智能体核心组件测试套件
+        title: 智能体核心组件测试套件
+        scope:
+            - tests/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

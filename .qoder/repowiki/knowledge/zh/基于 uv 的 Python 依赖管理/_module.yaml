@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: dependency_management
+title: 基于 uv 的 Python 依赖管理
+scope: []
+source_files:
+    - pyproject.toml
+    - uv.lock
+    - .gitignore
+depends_on: []
+related_to: []

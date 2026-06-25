@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: error_handling
+title: 分层错误处理与异常恢复机制
+scope: []
+source_files:
+    - my_small_agent/__main__.py
+    - my_small_agent/agent.py
+    - my_small_agent/cli.py
+    - my_small_agent/tools/base.py
+    - my_small_agent/tools/file_read.py
+    - my_small_agent/tools/shell_exec.py
+    - .qoder/repowiki/zh/content/架构设计/错误处理.md
+depends_on: []
+related_to: []

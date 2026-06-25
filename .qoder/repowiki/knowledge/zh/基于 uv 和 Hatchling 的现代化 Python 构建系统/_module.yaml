@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: build_system
+title: 基于 uv 和 Hatchling 的现代化 Python 构建系统
+scope: []
+source_files:
+    - pyproject.toml
+    - uv.lock
+    - my_small_agent/__main__.py
+    - .env.example
+depends_on: []
+related_to: []

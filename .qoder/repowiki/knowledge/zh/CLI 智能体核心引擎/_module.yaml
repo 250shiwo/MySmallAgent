@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: ""
+title: CLI 智能体核心引擎
+scope:
+    - docs/
+    - .gitignore
+    - README.md
+    - docs\superpowers\plans\2026-06-22-agent-core.md
+    - docs\superpowers\specs\2026-06-22-agent-core-design.md
+source_files: []
+depends_on: []
+related_to: []
