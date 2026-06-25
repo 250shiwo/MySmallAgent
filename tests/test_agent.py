@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from my_small_agent.agent import Agent
+from my_small_agent.agent import Agent, AgentResponse
 from my_small_agent.config import Settings
 from my_small_agent.llm import LLMClient
 from my_small_agent.tools import ToolRegistry
@@ -77,6 +77,8 @@ def make_tool_call_response(tool_name: str, arguments: dict):
 def mock_settings():
     settings = MagicMock(spec=Settings)
     settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
     return settings
 
 
@@ -97,7 +99,7 @@ class TestAgent:
 
         agent = Agent(llm, registry, mock_settings)
         result = await agent.run_turn("Hi", confirm_callback=AsyncMock(return_value=True))
-        assert result == "Hello!"
+        assert result.content == "Hello!"
 
     @pytest.mark.asyncio
     async def test_safe_tool_auto_executes(self, mock_settings, registry):
@@ -115,7 +117,7 @@ class TestAgent:
         result = await agent.run_turn("Use the safe tool", confirm_callback=confirm)
 
         confirm.assert_not_called()  # safe tool should not ask
-        assert "Done!" in result
+        assert "Done!" in result.content
 
     @pytest.mark.asyncio
     async def test_dangerous_tool_requires_confirmation(self, mock_settings, registry):
@@ -148,7 +150,7 @@ class TestAgent:
         agent = Agent(llm, registry, mock_settings)
         confirm = AsyncMock(return_value=False)
         result = await agent.run_turn("Run danger", confirm_callback=confirm)
-        assert "won't" in result.lower() or "ok" in result.lower()
+        assert "won't" in result.content.lower() or "ok" in result.content.lower()
 
     @pytest.mark.asyncio
     async def test_clear_history(self, mock_settings, registry):
@@ -175,4 +177,57 @@ class TestAgent:
 
         agent = Agent(llm, registry, mock_settings)
         result = await agent.run_turn("loop forever", confirm_callback=AsyncMock())
-        assert "maximum" in result.lower() or "iteration" in result.lower() or "limit" in result.lower()
+        assert "maximum" in result.content.lower() or "iteration" in result.content.lower() or "limit" in result.content.lower()
+
+
+def test_agent_response_dataclass():
+    """AgentResponse 应正确存储 content 和 thinking。"""
+    resp = AgentResponse(content="hello", thinking="let me think...")
+    assert resp.content == "hello"
+    assert resp.thinking == "let me think..."
+
+
+def test_agent_response_default_thinking():
+    """AgentResponse 的 thinking 字段默认为空字符串。"""
+    resp = AgentResponse(content="hello")
+    assert resp.thinking == ""
+
+
+@pytest.mark.asyncio
+async def test_strip_thinking_from_history():
+    """strip_thinking_from_history 应移除历史中的 reasoning_content。"""
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    agent = Agent(llm, registry, settings)
+
+    # 模拟带 thinking 的历史
+    agent.messages.append({
+        "role": "assistant",
+        "content": "answer",
+        "reasoning_content": "thinking process",
+    })
+
+    agent.strip_thinking_from_history()
+
+    assistant_msg = agent.messages[-1]
+    assert "reasoning_content" not in assistant_msg
+    assert assistant_msg["content"] == "answer"
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_state_from_settings():
+    """Agent 应从 Settings 初始化 streaming 和 thinking 状态。"""
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = False
+    settings.enable_thinking = False
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    agent = Agent(llm, registry, settings)
+
+    assert agent.streaming_enabled is False
+    assert agent.thinking_enabled is False

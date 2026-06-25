@@ -80,7 +80,7 @@ class TestIntegration:
         result = await agent.run_turn(
             "Read hello.txt", confirm_callback=AsyncMock(return_value=True)
         )
-        assert "Hello from file!" in result
+        assert "Hello from file!" in result.content
 
     @pytest.mark.asyncio
     async def test_agent_writes_file_with_confirmation(self, settings, registry, tmp_path):
