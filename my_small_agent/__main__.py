@@ -39,8 +39,8 @@ async def main() -> None:
         # 2. 创建 LLM 客户端（连接 OpenAI API）
         llm_client = LLMClient(settings)
 
-        # 3. 创建工具注册表（注册 read_file, write_file, list_directory, execute_shell）
-        registry = create_default_registry()
+        # 3. 创建工具注册表（注册 read_file, write_file, list_directory, execute_shell, web_search, current_time）
+        registry = create_default_registry(settings)
 
         # 4. 创建 Agent（组装 LLM + 工具 + 配置）
         agent = Agent(llm_client, registry, settings)

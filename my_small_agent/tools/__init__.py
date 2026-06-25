@@ -4,15 +4,18 @@
 设计思路：
   - ToolRegistry 是一个字典容器，以工具名称为 key 存储工具实例
   - 注册后的工具可以转换为 OpenAI 要求的 tools 参数格式
-  - create_default_registry() 工厂函数一键注册所有内置工具
+  - create_default_registry(settings) 工厂函数一键注册所有内置工具
   - 未来添加新工具只需：1) 继承 Tool 基类  2) 在注册表中 register
 """
 
+from my_small_agent.config import Settings
 from my_small_agent.tools.base import Tool
+from my_small_agent.tools.current_time import CurrentTimeTool
 from my_small_agent.tools.file_read import ReadFileTool
 from my_small_agent.tools.file_write import WriteFileTool
 from my_small_agent.tools.list_dir import ListDirectoryTool
 from my_small_agent.tools.shell_exec import ExecuteShellTool
+from my_small_agent.tools.web_search import WebSearchTool
 
 
 class ToolRegistry:
@@ -71,19 +74,23 @@ class ToolRegistry:
         return list(self._tools.values())
 
 
-def create_default_registry() -> ToolRegistry:
+def create_default_registry(settings: Settings) -> ToolRegistry:
     """
     创建并返回一个包含所有内置工具的注册表。
 
     内置工具：
-      - read_file:      读取文件（安全）
-      - write_file:     写入文件（危险，需确认）
-      - list_directory: 列出目录（安全）
-      - execute_shell:  执行命令（危险，需确认）
+      - read_file:       读取文件（安全）
+      - write_file:      写入文件（危险，需确认）
+      - list_directory:  列出目录（安全）
+      - execute_shell:   执行命令（危险，需确认）
+      - web_search:      网页搜索（安全）
+      - current_time:    当前时间（安全）
     """
     registry = ToolRegistry()
     registry.register(ReadFileTool())
     registry.register(WriteFileTool())
     registry.register(ListDirectoryTool())
     registry.register(ExecuteShellTool())
+    registry.register(WebSearchTool())
+    registry.register(CurrentTimeTool(timezone=settings.timezone))
     return registry

@@ -57,8 +57,8 @@ def settings():
 
 
 @pytest.fixture
-def registry():
-    return create_default_registry()
+def registry(settings):
+    return create_default_registry(settings)
 
 
 class TestIntegration:
@@ -107,16 +107,16 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_registry_has_all_tools(self, registry):
-        """Default registry should have all 4 built-in tools."""
+        """Default registry should have all 6 built-in tools."""
         tools = registry.list_all()
         names = {t.name for t in tools}
-        assert names == {"read_file", "write_file", "list_directory", "execute_shell"}
+        assert names == {"read_file", "write_file", "list_directory", "execute_shell", "web_search", "current_time"}
 
     @pytest.mark.asyncio
     async def test_openai_tools_format_valid(self, registry):
         """OpenAI tools format should be valid for API calls."""
         openai_tools = registry.get_openai_tools()
-        assert len(openai_tools) == 4
+        assert len(openai_tools) == 6
         for tool_def in openai_tools:
             assert tool_def["type"] == "function"
             assert "name" in tool_def["function"]
