@@ -171,6 +171,124 @@ class Agent:
             content="Reached maximum iteration limit. Please try a simpler request."
         )
 
+    async def run_turn_stream(
+        self,
+        user_input: str,
+        confirm_callback: ConfirmCallback,
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """
+        流式版本的对话循环。
+
+        yield (event_type, content) 元组：
+          - ("thinking", text): 思维链内容片段
+          - ("content", text):  正文内容片段
+
+        工具调用轮次仍然是“阻塞”的——stream 收完后才执行工具，
+        然后开始下一轮 stream。
+        """
+        self.messages.append({"role": "user", "content": user_input})
+        tools = self.registry.get_openai_tools()
+        iteration = 0
+
+        while iteration < self.max_iterations:
+            iteration += 1
+
+            stream = await self.llm.chat_stream(
+                messages=self.messages,
+                tools=tools if tools else None,
+                thinking_enabled=self.thinking_enabled,
+            )
+
+            # 从 chunk 中累积完整响应
+            full_content = ""
+            full_thinking = ""
+            tool_calls_data: list[dict] = []
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta
+
+                # 思维内容
+                reasoning = getattr(delta, 'reasoning_content', None)
+                if reasoning:
+                    full_thinking += reasoning
+                    yield ("thinking", reasoning)
+
+                # 正文内容
+                if delta.content:
+                    full_content += delta.content
+                    yield ("content", delta.content)
+
+                # 工具调用（需要拼接多个 chunk 的 delta）
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        # 扩展列表长度
+                        while len(tool_calls_data) <= idx:
+                            tool_calls_data.append(
+                                {"id": "", "function": {"name": "", "arguments": ""}}
+                            )
+                        # 拼接各字段
+                        if tc_delta.id:
+                            tool_calls_data[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_calls_data[idx]["function"]["name"] += tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_calls_data[idx]["function"]["arguments"] += tc_delta.function.arguments
+
+            # 流结束：判断是否有工具调用
+            if not tool_calls_data:
+                # 纯文本回复 → 保存到历史，结束
+                msg_dict: dict = {"role": "assistant", "content": full_content}
+                if full_thinking:
+                    msg_dict["reasoning_content"] = full_thinking
+                self.messages.append(msg_dict)
+                return
+
+            # 有工具调用 → 保存 assistant 消息（含 tool_calls）
+            assistant_msg: dict = {
+                "role": "assistant",
+                "content": full_content or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": tc["function"],
+                    }
+                    for tc in tool_calls_data
+                ],
+            }
+            if full_thinking:
+                assistant_msg["reasoning_content"] = full_thinking
+            self.messages.append(assistant_msg)
+
+            # 执行每个工具调用
+            for tc in tool_calls_data:
+                tool_name = tc["function"]["name"]
+                arguments = json.loads(tc["function"]["arguments"])
+
+                tool = self.registry.get(tool_name)
+                if tool is None:
+                    result = f"Error: Unknown tool '{tool_name}'"
+                else:
+                    if tool.danger_level == "dangerous":
+                        confirmed = await confirm_callback(
+                            tool_name, tool.description, arguments
+                        )
+                        if not confirmed:
+                            result = "User rejected this tool execution."
+                        else:
+                            result = await self._execute_tool(tool, arguments)
+                    else:
+                        result = await self._execute_tool(tool, arguments)
+
+                self.messages.append(
+                    {"role": "tool", "tool_call_id": tc["id"], "content": result}
+                )
+
+        # 达到最大迭代次数
+        yield ("content", "\nReached maximum iteration limit.")
+
     async def _execute_tool(self, tool: Any, arguments: dict) -> str:
         """
         安全地执行工具。如果工具内部抛出异常，捕获并返回错误信息，
