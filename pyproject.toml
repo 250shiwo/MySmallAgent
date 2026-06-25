@@ -8,7 +8,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "prompt-toolkit>=3.0",
     "rich>=13.0",
-    "duckduckgo-search>=7.0",
+    "ddgs>=7.0",
     "tzdata; sys_platform == 'win32'",
 ]
 

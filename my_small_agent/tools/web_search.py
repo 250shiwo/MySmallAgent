@@ -3,14 +3,14 @@
 
 安全级别：safe（只读搜索，无副作用，自动执行）
 
-使用 duckduckgo-search 库的 DDGS 同步接口，
+使用 ddgs 库（原 duckduckgo-search）的 DDGS 同步接口，
 通过 asyncio.to_thread() 包装为异步调用，避免阻塞事件循环。
 无需 API Key，免费使用。
 """
 
 import asyncio
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 from my_small_agent.tools.base import Tool
 
