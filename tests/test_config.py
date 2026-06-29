@@ -53,3 +53,27 @@ def test_settings_new_fields_from_env(monkeypatch):
     assert settings.enable_streaming is False
     assert settings.enable_thinking is False
     assert settings.timezone == "America/New_York"
+
+
+def test_compression_fields_defaults(monkeypatch):
+    """压缩相关配置项应有正确默认值。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    settings = Settings(_env_file=None)
+    assert settings.max_context_tokens == 200000
+    assert settings.head_keep == 3
+    assert settings.tail_keep == 20
+    assert settings.compression_threshold == 0.8
+
+
+def test_compression_fields_from_env(monkeypatch):
+    """压缩相关配置项应能从环境变量读取。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MAX_CONTEXT_TOKENS", "128000")
+    monkeypatch.setenv("HEAD_KEEP", "5")
+    monkeypatch.setenv("TAIL_KEEP", "15")
+    monkeypatch.setenv("COMPRESSION_THRESHOLD", "0.9")
+    settings = Settings(_env_file=None)
+    assert settings.max_context_tokens == 128000
+    assert settings.head_keep == 5
+    assert settings.tail_keep == 15
+    assert settings.compression_threshold == 0.9
