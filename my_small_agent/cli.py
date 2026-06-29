@@ -270,12 +270,17 @@ class CLI:
         streaming = "[green]开启[/green]" if self.agent.streaming_enabled else "[red]关闭[/red]"
         thinking = "[green]开启[/green]" if self.agent.thinking_enabled else "[red]关闭[/red]"
         detail = "[green]展开[/green]" if self._detail_enabled else "[dim]折叠[/dim]"
+        tokens = self.agent.estimate_tokens()
+        max_tokens = self.agent.settings.max_context_tokens
+        pct = int(tokens / max_tokens * 100) if max_tokens > 0 else 0
+        token_line = f"  Token 用量: ~{tokens:,} / {max_tokens:,} ({pct}%)"
         self.console.print(
             Panel(
                 f"  模型:       [bold]{self.agent.llm.model}[/bold]\n"
                 f"  流式输出:   {streaming}\n"
                 f"  思维链:     {thinking}\n"
                 f"  详情展示:   {detail}\n"
+                f"{token_line}\n"
                 f"  当前会话:   [dim]{self.agent.session_id[:8]}[/dim]  "
                 f"{self.agent.session_title or '(未命名)'}",
                 title="当前状态",

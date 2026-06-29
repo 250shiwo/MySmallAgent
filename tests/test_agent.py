@@ -79,6 +79,10 @@ def mock_settings():
     settings.max_iterations = 10
     settings.enable_streaming = True
     settings.enable_thinking = True
+    settings.max_context_tokens = 200000
+    settings.head_keep = 3
+    settings.tail_keep = 20
+    settings.compression_threshold = 0.8
     return settings
 
 
@@ -476,3 +480,36 @@ def test_reset_session_preserves_memory_system_message(tmp_path):
     assert len(system_msgs) == 2
     # 非 system 消息应被清空
     assert len(agent.messages) == 2
+
+
+class TestEstimateTokens:
+    def test_empty_messages_returns_zero(self, mock_settings, registry):
+        """只有 system prompt 时应返回合理的估算值（大于 0）。"""
+        llm = MagicMock(spec=LLMClient)
+        agent = Agent(llm, registry, mock_settings)
+        tokens = agent.estimate_tokens()
+        assert tokens > 0  # system prompt 有内容
+
+    def test_estimate_grows_with_messages(self, mock_settings, registry):
+        """添加消息后 token 估算值应增大。"""
+        llm = MagicMock(spec=LLMClient)
+        agent = Agent(llm, registry, mock_settings)
+        before = agent.estimate_tokens()
+        agent.messages.append({"role": "user", "content": "a" * 400})
+        after = agent.estimate_tokens()
+        assert after > before
+        # 400 chars / 4 = 100 tokens, 应有近似增量
+        assert after - before == pytest.approx(100, abs=5)
+
+    def test_estimate_counts_all_string_fields(self, mock_settings, registry):
+        """tool_calls 等非 content 字段也应计入估算。"""
+        llm = MagicMock(spec=LLMClient)
+        agent = Agent(llm, registry, mock_settings)
+        baseline = agent.estimate_tokens()
+        agent.messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"function": {"name": "x" * 40, "arguments": "{}"}}],
+        })
+        after = agent.estimate_tokens()
+        assert after > baseline

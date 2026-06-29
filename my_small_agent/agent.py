@@ -80,6 +80,7 @@ class Agent:
         self.llm = llm
         self.registry = registry
         self.max_iterations = settings.max_iterations
+        self.settings = settings  # 保存完整 settings 供压缩功能使用
 
         # 运行时状态（可通过 CLI 命令动态切换）
         self.streaming_enabled: bool = getattr(settings, 'enable_streaming', True)
@@ -366,3 +367,20 @@ class Agent:
         相当于 /new 命令。
         """
         self.reset_session()
+
+    def estimate_tokens(self) -> int:
+        """
+        估算当前对话历史的 token 用量（chars / 4 算法）。
+
+        遍历所有 message 的每个字段：
+          - 字符串值直接计长度
+          - 列表/字典值序列化为 JSON 后计长度
+        """
+        total_chars = 0
+        for msg in self.messages:
+            for value in msg.values():
+                if isinstance(value, str):
+                    total_chars += len(value)
+                elif isinstance(value, (dict, list)):
+                    total_chars += len(json.dumps(value, ensure_ascii=False))
+        return total_chars // 4
