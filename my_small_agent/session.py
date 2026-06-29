@@ -93,7 +93,7 @@ class SessionManager:
                 title=data["title"],
                 messages=data["messages"],
             )
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (FileNotFoundError, ValueError, KeyError):
             return None
 
     def list_sessions(self) -> list[SessionData]:
