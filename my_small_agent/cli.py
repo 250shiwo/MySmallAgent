@@ -84,6 +84,25 @@ class CLI:
             await self._run_agent_turn_normal(user_input)
         # 对话完成后自动保存会话
         self._save_session()
+        # 检查是否需要自动压缩
+        await self._auto_compact_if_needed()
+
+    async def _auto_compact_if_needed(self) -> None:
+        """当 token 估算超过阈值时自动触发上下文压缩。"""
+        tokens = self.agent.estimate_tokens()
+        threshold = int(
+            self.agent.settings.max_context_tokens * self.agent.settings.compression_threshold
+        )
+        min_required = self.agent.settings.head_keep + self.agent.settings.tail_keep
+        if tokens >= threshold and len(self.agent.messages) > min_required:
+            self.console.print(
+                f"[dim]⚡ Token 用量（{tokens:,}）达到阈值（{threshold:,}），自动压缩中...[/dim]"
+            )
+            try:
+                before, after = await self.agent.compact_context()
+                self.console.print(f"[dim]✓ 自动压缩完成：{before} 条 → {after} 条[/dim]")
+            except Exception as e:
+                self.console.print(f"[dim]⚠ 自动压缩失败：{e}[/dim]")
 
     def _save_session(self) -> None:
         """保存当前会话到文件。失败时打印警告，不中断对话。"""
@@ -210,6 +229,7 @@ class CLI:
           /sessions → 列出所有历史会话
           /resume   → 恢复指定会话
           /new      → 新建会话
+          /compact  → 手动压缩上下文（保留前3条+后20条）
           /clear    → 清空对话历史
           /exit     → 退出程序
         """
@@ -234,6 +254,8 @@ class CLI:
             await self._resume_session(command)
         elif cmd == "/new":
             self._new_session()
+        elif cmd == "/compact":
+            await self._compact_context()
         elif cmd == "/clear":
             self.agent.reset_session()
             self.console.print("[green]对话历史已清空，已开始新会话。[/green]")
@@ -303,6 +325,7 @@ class CLI:
                 "  /sessions - List conversation history\n"
                 "  /resume   - Resume a past session\n"
                 "  /new      - Start a new session\n"
+                "  /compact  - Compress conversation context\n"
                 "  /clear    - Clear history\n"
                 "  /exit     - Exit",
                 title="Welcome",
@@ -325,6 +348,7 @@ class CLI:
                 "  [cyan]/sessions[/cyan] - List all saved conversations\n"
                 "  [cyan]/resume[/cyan]   - Resume a past session: /resume <id_prefix>\n"
                 "  [cyan]/new[/cyan]      - Start a new session\n"
+                "  [cyan]/compact[/cyan]   - Compress conversation context (keeps first 3 + last 20)\n"
                 "  [cyan]/clear[/cyan]    - Clear conversation history\n"
                 "  [cyan]/exit[/cyan]     - Exit the program\n\n"
                 "[bold]Tips:[/bold]\n"
@@ -424,3 +448,28 @@ class CLI:
         """创建新会话，清空消息历史。"""
         self.agent.reset_session()
         self.console.print("[green]✓ 已创建新会话。[/green]")
+
+    async def _compact_context(self) -> None:
+        """
+        手动触发上下文压缩。
+
+        检查消息总数是否 > head_keep + tail_keep（默认 23），
+        满足条件则调用 LLM 生成摘要并替换中间消息，展示压缩前后对比。
+        """
+        min_required = self.agent.settings.head_keep + self.agent.settings.tail_keep
+        if len(self.agent.messages) <= min_required:
+            self.console.print(
+                f"[yellow]⚠ 消息总数（{len(self.agent.messages)} 条）不超过 {min_required} 条，"
+                f"无需压缩。[/yellow]"
+            )
+            return
+
+        self.console.print("[dim]⚡ 正在压缩上下文...[/dim]")
+        try:
+            before, after = await self.agent.compact_context()
+            self.console.print(
+                f"[green]✓ 上下文已压缩：{before} 条 → {after} 条消息 "
+                f"（节省 {before - after} 条）[/green]"
+            )
+        except Exception as e:
+            self.console.print(f"[red]✗ 压缩失败：{e}[/red]")
