@@ -27,10 +27,12 @@ async def main() -> None:
 
     try:
         # 延迟导入：在函数内导入，避免启动前不必要的模块加载
+        from pathlib import Path
         from my_small_agent.config import Settings         # 配置管理
         from my_small_agent.llm import LLMClient           # LLM 客户端
         from my_small_agent.tools import create_default_registry  # 工具注册表
         from my_small_agent.agent import Agent             # 对话循环
+        from my_small_agent.session import SessionManager   # 会话持久化
         from my_small_agent.cli import CLI                 # 终端交互
 
         # 1. 加载配置（从 .env 文件和环境变量）
@@ -45,8 +47,11 @@ async def main() -> None:
         # 4. 创建 Agent（组装 LLM + 工具 + 配置）
         agent = Agent(llm_client, registry, settings)
 
-        # 5. 创建 CLI 并启动交互循环
-        cli = CLI(agent)
+        # 5. 创建会话管理器（保存到 .genesis/sessions/）
+        session_manager = SessionManager(Path(".genesis") / "sessions")
+
+        # 6. 创建 CLI 并启动交互循环
+        cli = CLI(agent, session_manager)
         await cli.run()
 
     except KeyboardInterrupt:

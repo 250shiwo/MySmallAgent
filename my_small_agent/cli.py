@@ -13,6 +13,8 @@ CLI 交互层 - 处理终端的用户输入输出和斜杠命令。
   5. 重复步骤 2-4
 """
 
+from pathlib import Path
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -21,6 +23,7 @@ from rich.panel import Panel
 from rich.status import Status
 
 from my_small_agent.agent import Agent
+from my_small_agent.session import AmbiguousPrefixError, SessionManager
 
 
 class CLI:
@@ -34,8 +37,9 @@ class CLI:
       - 美化显示 Agent 的回复（rich）
     """
 
-    def __init__(self, agent: Agent) -> None:
+    def __init__(self, agent: Agent, session_manager: SessionManager) -> None:
         self.agent = agent
+        self.session_manager = session_manager
         self.console = Console()            # rich 的控制台，负责美化输出
         self.session: PromptSession = PromptSession()  # prompt_toolkit 的输入会话
         self._running = True                # REPL 循环的控制标志
@@ -73,11 +77,34 @@ class CLI:
                 self.console.print("\n[dim]Goodbye![/dim]")
 
     async def _run_agent_turn(self, user_input: str) -> None:
-        """根据 streaming 状态选择流式或非流式对话。"""
+        """根据 streaming 状态选择流式或非流式对话，完成后自动保存会话。"""
         if self.agent.streaming_enabled:
             await self._run_agent_turn_stream(user_input)
         else:
             await self._run_agent_turn_normal(user_input)
+        # 对话完成后自动保存会话
+        self._save_session()
+
+    def _save_session(self) -> None:
+        """保存当前会话到文件。失败时打印警告，不中断对话。"""
+        # title 为空时，从消息列表取第一条 user 消息的前 50 字符
+        if not self.agent.session_title:
+            for msg in self.agent.messages:
+                if msg.get("role") == "user":
+                    self.agent.session_title = msg["content"][:50]
+                    break
+        title = self.agent.session_title or "New Session"
+        # 过滤掉 system prompt，只保存对话消息
+        messages = [m for m in self.agent.messages if m.get("role") != "system"]
+        try:
+            self.session_manager.save(
+                session_id=self.agent.session_id,
+                title=title,
+                created_at=self.agent.created_at,
+                messages=messages,
+            )
+        except Exception as e:
+            self.console.print(f"[yellow]⚠ 会话保存失败：{e}[/yellow]")
 
     async def _run_agent_turn_normal(self, user_input: str) -> None:
         """非流式模式：等待完整响应后渲染。"""
@@ -174,14 +201,17 @@ class CLI:
         解析并执行斜杠命令。
 
         支持的命令：
-          /help   → 显示帮助信息
-          /tools  → 列出所有已注册工具
-          /stream → 切换流式输出
-          /think  → 切换思维链模式
-          /detail → 切换思维链详情展示（默认折叠）
-          /status → 显示当前设置
-          /clear  → 清空对话历史
-          /exit   → 退出程序
+          /help     → 显示帮助信息
+          /tools    → 列出所有已注册工具
+          /stream   → 切换流式输出
+          /think    → 切换思维链模式
+          /detail   → 切换思维链详情展示（默认折叠）
+          /status   → 显示当前设置
+          /sessions → 列出所有历史会话
+          /resume   → 恢复指定会话
+          /new      → 新建会话
+          /clear    → 清空对话历史
+          /exit     → 退出程序
         """
         # 取命令的第一部分（忽略参数）并转小写
         cmd = command.lower().split()[0]
@@ -198,9 +228,15 @@ class CLI:
             self._toggle_detail()
         elif cmd == "/status":
             self._print_status()
+        elif cmd == "/sessions":
+            self._print_sessions()
+        elif cmd == "/resume":
+            await self._resume_session(command)
+        elif cmd == "/new":
+            self._new_session()
         elif cmd == "/clear":
-            self.agent.clear_history()
-            self.console.print("[green]Conversation history cleared.[/green]")
+            self.agent.reset_session()
+            self.console.print("[green]对话历史已清空，已开始新会话。[/green]")
         elif cmd == "/exit":
             self._running = False
             self.console.print("[dim]Goodbye![/dim]")
@@ -239,7 +275,9 @@ class CLI:
                 f"  模型:       [bold]{self.agent.llm.model}[/bold]\n"
                 f"  流式输出:   {streaming}\n"
                 f"  思维链:     {thinking}\n"
-                f"  详情展示:   {detail}",
+                f"  详情展示:   {detail}\n"
+                f"  当前会话:   [dim]{self.agent.session_id[:8]}[/dim]  "
+                f"{self.agent.session_title or '(未命名)'}",
                 title="当前状态",
                 border_style="cyan",
             )
@@ -256,9 +294,12 @@ class CLI:
                 "  /stream - Toggle streaming output\n"
                 "  /think  - Toggle thinking mode\n"
                 "  /detail - Toggle thinking detail view\n"
-                "  /status - Show current settings\n"
-                "  /clear  - Clear history\n"
-                "  /exit   - Exit",
+                "  /status   - Show current settings\n"
+                "  /sessions - List conversation history\n"
+                "  /resume   - Resume a past session\n"
+                "  /new      - Start a new session\n"
+                "  /clear    - Clear history\n"
+                "  /exit     - Exit",
                 title="Welcome",
                 border_style="blue",
             )
@@ -275,9 +316,12 @@ class CLI:
                 "  [cyan]/stream[/cyan] - Toggle streaming output\n"
                 "  [cyan]/think[/cyan]  - Toggle thinking mode\n"
                 "  [cyan]/detail[/cyan] - Toggle thinking detail view\n"
-                "  [cyan]/status[/cyan] - Show current settings\n"
-                "  [cyan]/clear[/cyan]  - Clear conversation history\n"
-                "  [cyan]/exit[/cyan]   - Exit the program\n\n"
+                "  [cyan]/status[/cyan]   - Show current settings\n"
+                "  [cyan]/sessions[/cyan] - List all saved conversations\n"
+                "  [cyan]/resume[/cyan]   - Resume a past session: /resume <id_prefix>\n"
+                "  [cyan]/new[/cyan]      - Start a new session\n"
+                "  [cyan]/clear[/cyan]    - Clear conversation history\n"
+                "  [cyan]/exit[/cyan]     - Exit the program\n\n"
                 "[bold]Tips:[/bold]\n"
                 "  • Press Ctrl+C or Ctrl+D to exit\n"
                 "  • The agent can read/write files, search the web, and run shell commands",
@@ -311,3 +355,67 @@ class CLI:
                 border_style="cyan",
             )
         )
+
+    def _print_sessions(self) -> None:
+        """列出所有历史会话，按 updated_at 倒序展示。"""
+        sessions = self.session_manager.list_sessions()
+        if not sessions:
+            self.console.print("[dim]暂无历史会话。使用 /new 开始新会话。[/dim]")
+            return
+
+        lines = []
+        for i, s in enumerate(sessions, 1):
+            # 当前会话用 ▶ 标注
+            marker = "[cyan]▶[/cyan] " if s.session_id == self.agent.session_id else "  "
+            # 格式化时间：取 updated_at 前 16 字符（YYYY-MM-DDTHH:MM）
+            updated = s.updated_at[:16].replace("T", " ")
+            short_id = s.session_id[:8]
+            lines.append(
+                f"{marker}{i}. [dim][{short_id}][/dim]  {s.title}\n"
+                f"       [dim]{updated}[/dim]"
+            )
+
+        self.console.print(
+            Panel(
+                "\n\n".join(lines),
+                title=f"历史会话 ({len(sessions)})",
+                border_style="cyan",
+            )
+        )
+
+    async def _resume_session(self, command: str) -> None:
+        """恢复指定前缀的历史会话。"""
+        parts = command.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            self.console.print(
+                "[yellow]用法：/resume <session_id_prefix>[/yellow]\n"
+                "  例如：/resume abc12345"
+            )
+            return
+
+        prefix = parts[1].strip()
+        try:
+            session = self.session_manager.find_by_prefix(prefix)
+        except AmbiguousPrefixError as e:
+            self.console.print(f"[yellow]⚠ {e}[/yellow]")
+            return
+
+        if session is None:
+            self.console.print(f"[red]未找到匹配前缀 '{prefix}' 的会话。[/red]")
+            return
+
+        self.agent.reset_session(
+            messages=session.messages,
+            session_id=session.session_id,
+            title=session.title,
+            created_at=session.created_at,
+        )
+        self.console.print(
+            f"[green]✓ 已恢复会话：[bold]{session.title}[/bold][/green]\n"
+            f"  [dim]ID: {session.session_id[:8]}  共 {len(session.messages)} 条消息[/dim]"
+        )
+
+    def _new_session(self) -> None:
+        """创建新会话，清空消息历史。"""
+        self.agent.reset_session()
+        self.console.print("[green]✓ 已创建新会话。[/green]")
