@@ -395,3 +395,84 @@ def test_clear_history_generates_new_session_id():
     assert agent.session_id != old_id
     assert len(agent.messages) == 1
     assert agent.messages[0]["role"] == "system"
+
+
+# ---- 记忆注入测试 ----
+
+def test_agent_without_memory_manager_has_one_system_message():
+    """不传 memory_manager 时，messages 应只有 1 条 system 消息。"""
+    from unittest.mock import MagicMock
+    from my_small_agent.config import Settings
+    from my_small_agent.llm import LLMClient
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    agent = Agent(llm, registry, settings)
+    assert len(agent.messages) == 1
+    assert agent.messages[0]["role"] == "system"
+
+
+def test_agent_with_memory_manager_no_entries_has_one_system_message(tmp_path):
+    """MemoryManager 无条目时，messages 应仍只有 1 条 system 消息（不注入空记忆）。"""
+    from unittest.mock import MagicMock
+    from my_small_agent.config import Settings
+    from my_small_agent.llm import LLMClient
+    from my_small_agent.memory import MemoryManager
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    mm = MemoryManager(tmp_path)  # 无条目
+    agent = Agent(llm, registry, settings, memory_manager=mm)
+    assert len(agent.messages) == 1
+
+
+def test_agent_with_memory_injects_second_system_message(tmp_path):
+    """MemoryManager 有条目时，应注入第二条 system 消息。"""
+    from unittest.mock import MagicMock
+    from my_small_agent.config import Settings
+    from my_small_agent.llm import LLMClient
+    from my_small_agent.memory import MemoryManager
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    mm = MemoryManager(tmp_path)
+    mm.save_entry("User prefers Python")
+    agent = Agent(llm, registry, settings, memory_manager=mm)
+    assert len(agent.messages) == 2
+    assert agent.messages[1]["role"] == "system"
+    assert "Python" in agent.messages[1]["content"]
+    assert "[长期记忆" in agent.messages[1]["content"]
+
+
+def test_reset_session_preserves_memory_system_message(tmp_path):
+    """reset_session() 应保留所有 system 消息（含记忆注入消息）。"""
+    from unittest.mock import MagicMock
+    from my_small_agent.config import Settings
+    from my_small_agent.llm import LLMClient
+    from my_small_agent.memory import MemoryManager
+    settings = MagicMock(spec=Settings)
+    settings.max_iterations = 10
+    settings.enable_streaming = True
+    settings.enable_thinking = True
+    llm = MagicMock(spec=LLMClient)
+    registry = ToolRegistry()
+    mm = MemoryManager(tmp_path)
+    mm.save_entry("test memory")
+    agent = Agent(llm, registry, settings, memory_manager=mm)
+    # 添加一条用户消息
+    agent.messages.append({"role": "user", "content": "hello"})
+    agent.reset_session()
+    # 重置后应保留 2 条 system 消息（SYSTEM_PROMPT + 记忆注入）
+    system_msgs = [m for m in agent.messages if m["role"] == "system"]
+    assert len(system_msgs) == 2
+    # 非 system 消息应被清空
+    assert len(agent.messages) == 2
