@@ -122,3 +122,19 @@ class TestIntegration:
             assert "name" in tool_def["function"]
             assert "description" in tool_def["function"]
             assert "parameters" in tool_def["function"]
+
+    @pytest.mark.asyncio
+    async def test_registry_with_memory_and_session_tools(self, settings, tmp_path):
+        """传入 memory_manager 和 sessions_dir 时应注册 8 个工具。"""
+        from pathlib import Path
+        from my_small_agent.memory import MemoryManager
+        mm = MemoryManager(tmp_path / "memory")
+        registry = create_default_registry(
+            settings,
+            memory_manager=mm,
+            sessions_dir=tmp_path / "sessions",
+        )
+        names = {t.name for t in registry.list_all()}
+        assert "memory_save" in names
+        assert "session_search" in names
+        assert len(names) == 8

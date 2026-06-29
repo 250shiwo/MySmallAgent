@@ -41,7 +41,8 @@ class MemoryManager:
         try:
             data = json.loads(self._file.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
-            data = {"entries": []}
+            data = {}
+        entries = data.setdefault("entries", [])
 
         # 生成唯一 ID：mem_ + 8 位随机十六进制（4 字节 = 8 hex chars）
         entry_id = "mem_" + secrets.token_hex(4)
@@ -50,7 +51,7 @@ class MemoryManager:
             "content": content,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        data["entries"].append(entry)
+        entries.append(entry)
 
         # 原子写：先写临时文件，再 os.replace()
         fd, tmp_path = tempfile.mkstemp(dir=self._dir, suffix=".tmp")
