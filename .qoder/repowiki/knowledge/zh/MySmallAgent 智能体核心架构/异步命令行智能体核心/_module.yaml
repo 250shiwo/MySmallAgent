@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: my_small_agent
-title: CLI智能体核心引擎
+title: 异步命令行智能体核心
 scope:
     - my_small_agent/
 source_files: []

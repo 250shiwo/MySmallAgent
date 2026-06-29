@@ -20,11 +20,10 @@
 
 ## 更新摘要
 **变更内容**
-- 新增流式聊天方法（chat_stream）支持实时响应输出
-- 增加思维链参数支持（thinking_enabled）启用 DeepSeek Reasoning
-- 更新配置管理包含新的流式和思维链开关
-- 增强 Agent 的流式对话循环处理机制
-- 完善 CLI 交互界面的思维链模式切换功能
+- 更新 DeepSeek 思维链参数实现：从 deprecated 的 `thinking` 参数迁移到新的 `extra_body` 参数结构
+- 保持向后兼容性：思维链功能仍然可用，但通过新的参数结构传递
+- 增强与新版 DeepSeek API 的兼容性
+- 更新测试用例以反映新的参数传递方式
 
 ## 目录
 1. [简介](#简介)
@@ -40,6 +39,8 @@
 
 ## 简介
 本文件面向 LLM 客户端的技术文档，围绕 AsyncOpenAI 封装实现、OpenAI API 集成方式、工具调用支持、响应处理机制以及新增的流式聊天方法和思维链参数展开，覆盖客户端初始化、消息格式转换、工具定义传递、错误重试策略以及实时输出处理，并结合 Agent 层交互模式与数据流转过程给出实践指导。读者可据此理解从 CLI 到 Agent、再到 LLM 客户端与 OpenAI API 的完整链路。
+
+**更新** 本版本重点更新了 DeepSeek 思维链参数的实现方式，从传统的 `thinking` 参数迁移到新的 `extra_body` 参数结构，确保与新版 DeepSeek API 的兼容性。
 
 ## 项目结构
 该项目采用按功能分层的组织方式：
@@ -89,7 +90,7 @@ TOOLBASE --> TOOLS
   - 提供异步 chat 方法，支持传入 messages、可选 tools 和思维链参数
   - 新增异步 chat_stream 方法，返回流式响应的异步迭代器
   - 将工具定义直接透传至 OpenAI API 的 tools 字段
-  - 支持 thinking 参数启用 DeepSeek 思维链模式
+  - **更新** 支持通过 `extra_body` 参数传递思维链参数，确保与新版 DeepSeek API 兼容
 - Agent 对话核心（Agent）
   - 维护系统提示与对话历史
   - 在每轮对话中调用 LLM 客户端，解析响应
@@ -133,12 +134,12 @@ User->>CLI : 输入消息或斜杠命令
 CLI->>Agent : run_turn(user_input, confirm_callback)
 alt 非流式模式
 Agent->>LLM : chat(messages, tools?, thinking_enabled?)
-LLM->>OpenAI : chat.completions.create(model, messages, tools?, thinking?)
+LLM->>OpenAI : chat.completions.create(model, messages, tools?, extra_body.thinking?)
 OpenAI-->>LLM : ChatCompletion
 LLM-->>Agent : ChatCompletion
 else 流式模式
 Agent->>LLM : chat_stream(messages, tools?, thinking_enabled?)
-LLM->>OpenAI : chat.completions.create(model, messages, tools?, thinking?, stream=True)
+LLM->>OpenAI : chat.completions.create(model, messages, tools?, extra_body.thinking?, stream=True)
 OpenAI-->>LLM : ChatCompletionChunk (异步迭代器)
 LLM-->>Agent : AsyncStream[ChatCompletionChunk]
 loop 流式处理
@@ -175,18 +176,19 @@ CLI-->>User : 渲染 Markdown 输出
   - 必要参数：messages（OpenAI 消息格式）
   - 可选参数：tools（OpenAI 工具定义列表）、thinking_enabled（思维链开关）
   - 将 tools 仅在非空时传入，避免不必要的字段
-  - 支持 thinking 参数透传（DeepSeek Reasoning）
+  - **更新** 通过 `extra_body` 参数结构传递思维链参数，确保与新版 DeepSeek API 兼容
   - 返回完整的 ChatCompletion 对象，供上层解析
 - 流式聊天接口（chat_stream）
   - 必要参数：messages（OpenAI 消息格式）
   - 可选参数：tools（OpenAI 工具定义列表）、thinking_enabled（思维链开关）
   - 启用 stream=True 参数，返回 AsyncStream[ChatCompletionChunk] 异步迭代器
+  - 通过 `extra_body` 参数传递思维链参数
   - 支持思维链内容的增量输出
   - 逐块 yield chunk，供上层实时处理
 - 参数构建（_build_kwargs）
   - 统一构建 API 调用参数，支持 tools、thinking_enabled 和 stream 参数
   - 仅在存在工具时添加 tools 字段
-  - thinking_enabled=True 时添加 thinking={"type": "enabled"} 参数
+  - **更新** thinking_enabled=True 时添加 `extra_body={"thinking": {"type": "enabled"}}` 参数
   - stream=True 时添加 stream=True 参数
 - 错误处理
   - 未在客户端内做重试或异常包装，交由上层（Agent/CLI）统一处理
@@ -418,7 +420,7 @@ ToolBase --> Tools["内置工具"]
   - 新增的 chat_stream 方法支持真正的流式异步处理
 - 请求最小化
   - 仅在存在工具时传入 tools 字段，减少 API 负载
-  - 思维链参数仅在启用时传递，避免不必要的开销
+  - **更新** 思维链参数通过 `extra_body` 结构传递，避免不必要的开销
 - 历史控制
   - 通过 /clear 保留系统提示，避免历史无限增长
   - 支持 strip_thinking_from_history() 清理思维链内容，节省 token 开销
@@ -450,8 +452,9 @@ ToolBase --> Tools["内置工具"]
   - 确认思维链模式与流式输出的正确配合
   - 检查 chunk.delta 的处理逻辑，确保内容拼接正确
 - 思维链内容丢失
-  - 检查 thinking_enabled 配置和参数传递
-  - 确保 reasoning_content 字段的正确处理和存储
+  - **更新** 检查 thinking_enabled 配置和参数传递
+  - 确保通过 `extra_body` 参数正确传递思维链配置
+  - 验证 DeepSeek API 版本兼容性
 
 **章节来源**
 - [agent.py:102-112](file://my_small_agent/agent.py#L102-L112)
@@ -459,7 +462,7 @@ ToolBase --> Tools["内置工具"]
 - [test_agent_stream.py:25-91](file://tests/test_agent_stream.py#L25-L91)
 
 ## 结论
-本项目以清晰的分层架构实现了从 CLI 到 Agent、再到 LLM 客户端与 OpenAI API 的完整链路。LLM 客户端对 AsyncOpenAI 进行轻量封装，专注于异步聊天、流式响应和思维链支持；Agent 负责对话循环与工具调用编排，支持实时输出处理；工具系统提供可扩展的工具生态；配置管理支持灵活的运行时开关。新增的流式聊天方法和思维链参数显著提升了用户体验和模型能力表现，整体设计简洁、职责明确，便于扩展与维护。
+本项目以清晰的分层架构实现了从 CLI 到 Agent、再到 LLM 客户端与 OpenAI API 的完整链路。LLM 客户端对 AsyncOpenAI 进行轻量封装，专注于异步聊天、流式响应和思维链支持；Agent 负责对话循环与工具调用编排，支持实时输出处理；工具系统提供可扩展的工具生态；配置管理支持灵活的运行时开关。**更新** 本版本特别增强了与新版 DeepSeek API 的兼容性，通过 `extra_body` 参数结构传递思维链参数，确保在新旧 API 间的平滑过渡。新增的流式聊天方法和思维链参数显著提升了用户体验和模型能力表现，整体设计简洁、职责明确，便于扩展与维护。
 
 ## 附录
 
@@ -469,7 +472,8 @@ ToolBase --> Tools["内置工具"]
   - [LLM 客户端 chat_stream 实现:94-113](file://my_small_agent/llm.py#L94-L113)
 - 流式处理示例
   - [Agent 流式对话循环:174-291](file://my_small_agent/agent.py#L174-L291)
-- 思维链参数传递
+- **更新** 思维链参数传递
+  - [LLM 客户端参数构建:64-66](file://my_small_agent/llm.py#L64-L66)
   - [Agent 非流式调用:108-112](file://my_small_agent/agent.py#L108-L112)
   - [Agent 流式调用:196-200](file://my_small_agent/agent.py#L196-L200)
 - 测试用例参考
@@ -491,3 +495,9 @@ ToolBase --> Tools["内置工具"]
 - /think - 切换思维链模式
 - /status - 显示当前设置状态
 - /help - 显示完整命令帮助
+
+### **更新** DeepSeek API 兼容性说明
+- **参数迁移**：从 `thinking` 参数迁移到 `extra_body.thinking` 结构
+- **兼容性**：保持向后兼容，思维链功能完全可用
+- **API 版本**：支持新版 DeepSeek API 的参数结构
+- **测试验证**：通过单元测试验证参数正确传递

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: logging_system
+title: 基于 Rich 的终端交互与无日志系统
+scope: []
+source_files:
+    - my_small_agent/__main__.py
+    - my_small_agent/cli.py
+    - my_small_agent/agent.py
+    - my_small_agent/tools/shell_exec.py
+depends_on: []
+related_to: []

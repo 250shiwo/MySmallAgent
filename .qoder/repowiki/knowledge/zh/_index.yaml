@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-06-25T03:37:47Z"
+exported_at: "2026-06-29T06:32:29Z"
 modules:
     "":
-        dir_name: CLI 智能体核心引擎
-        title: CLI 智能体核心引擎
+        dir_name: MySmallAgent 智能体核心架构
+        title: MySmallAgent 智能体核心架构
         scope:
             - docs/
             - .gitignore
@@ -81,9 +81,21 @@ modules:
         children: []
         depends_on: []
         related_to: []
+    logging_system:
+        dir_name: 基于 Rich 的终端交互与无日志系统
+        title: 基于 Rich 的终端交互与无日志系统
+        scope: []
+        source_files:
+            - my_small_agent/__main__.py
+            - my_small_agent/cli.py
+            - my_small_agent/agent.py
+            - my_small_agent/tools/shell_exec.py
+        children: []
+        depends_on: []
+        related_to: []
     my_small_agent:
-        dir_name: CLI智能体核心引擎
-        title: CLI智能体核心引擎
+        dir_name: 异步命令行智能体核心
+        title: 异步命令行智能体核心
         scope:
             - my_small_agent/
         source_files: []
