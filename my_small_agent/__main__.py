@@ -4,10 +4,11 @@
 启动流程：
   1. 加载 .env 配置
   2. 创建 LLM 客户端
-  3. 注册所有内置工具
-  4. 创建 Agent 实例
-  5. 创建 CLI 交互层
-  6. 启动 REPL 循环
+  3. 创建长期记忆管理器
+  4. 注册所有内置工具
+  5. 创建 Agent 实例
+  6. 创建 CLI 交互层
+  7. 启动 REPL 循环
 """
 
 import asyncio
@@ -21,7 +22,7 @@ async def main() -> None:
     异步主函数 - 初始化所有组件并启动 CLI。
 
     组件初始化顺序（后者依赖前者）：
-      Settings → LLMClient → ToolRegistry → Agent → CLI
+      Settings → LLMClient → MemoryManager → ToolRegistry → Agent → CLI
     """
     console = Console()
 
@@ -33,6 +34,7 @@ async def main() -> None:
         from my_small_agent.tools import create_default_registry  # 工具注册表
         from my_small_agent.agent import Agent             # 对话循环
         from my_small_agent.session import SessionManager   # 会话持久化
+        from my_small_agent.memory import MemoryManager        # 长期记忆
         from my_small_agent.cli import CLI                 # 终端交互
 
         # 1. 加载配置（从 .env 文件和环境变量）
@@ -41,16 +43,23 @@ async def main() -> None:
         # 2. 创建 LLM 客户端（连接 OpenAI API）
         llm_client = LLMClient(settings)
 
-        # 3. 创建工具注册表（注册 read_file, write_file, list_directory, execute_shell, web_search, current_time）
-        registry = create_default_registry(settings)
+        # 3. 创建长期记忆管理器（加载 .genesis/memory/memory.json）
+        memory_manager = MemoryManager(Path(".genesis") / "memory")
 
-        # 4. 创建 Agent（组装 LLM + 工具 + 配置）
-        agent = Agent(llm_client, registry, settings)
+        # 4. 创建工具注册表（含 memory_save 和 session_search）
+        registry = create_default_registry(
+            settings,
+            memory_manager=memory_manager,
+            sessions_dir=Path(".genesis") / "sessions",
+        )
 
-        # 5. 创建会话管理器（保存到 .genesis/sessions/）
+        # 5. 创建 Agent（组装 LLM + 工具 + 配置 + 长期记忆）
+        agent = Agent(llm_client, registry, settings, memory_manager=memory_manager)
+
+        # 6. 创建会话管理器（保存到 .genesis/sessions/）
         session_manager = SessionManager(Path(".genesis") / "sessions")
 
-        # 6. 创建 CLI 并启动交互循环
+        # 7. 创建 CLI 并启动交互循环
         cli = CLI(agent, session_manager)
         await cli.run()
 
