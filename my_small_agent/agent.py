@@ -384,3 +384,52 @@ class Agent:
                 elif isinstance(value, (dict, list)):
                     total_chars += len(json.dumps(value, ensure_ascii=False))
         return total_chars // 4
+
+    async def compact_context(self) -> tuple[int, int]:
+        """
+        压缩对话历史，用 LLM 生成的摘要替换中间消息。
+
+        算法：
+          保留 messages[:head_keep] + [摘要消息] + messages[-tail_keep:]
+
+        返回：(压缩前消息数, 压缩后消息数)
+        """
+        head = self.settings.head_keep
+        tail = self.settings.tail_keep
+        middle = self.messages[head:-tail]
+
+        # 将中间消息序列化为文本供 LLM 压缩
+        middle_text = "\n\n".join(
+            f"[{m.get('role', 'unknown')}]: "
+            + (m.get("content") or json.dumps(m.get("tool_calls", ""), ensure_ascii=False))
+            for m in middle
+        )
+
+        summary_prompt = (
+            "请将以下对话历史压缩为简洁摘要，严格使用以下格式：\n\n"
+            "## Goal           — 用户目标（1-2 句）\n"
+            "## Key Actions    — 已执行的操作列表\n"
+            "## Current State  — 当前进展\n"
+            "## Decisions      — 重要技术决策\n"
+            "## Technical Details — 需要精确保留的值\n"
+            "## User Preferences — 用户表达的偏好\n\n"
+            "对话内容：\n"
+            f"{middle_text}"
+        )
+
+        response = await self.llm.chat(
+            messages=[{"role": "user", "content": summary_prompt}],
+            tools=None,
+            thinking_enabled=False,
+        )
+        summary = response.choices[0].message.content or "(摘要生成失败)"
+
+        before_count = len(self.messages)
+        summary_msg = {
+            "role": "assistant",
+            "content": f"[压缩历史摘要]\n\n{summary}",
+        }
+        self.messages = self.messages[:head] + [summary_msg] + self.messages[-tail:]
+        after_count = len(self.messages)
+
+        return before_count, after_count

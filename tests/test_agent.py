@@ -513,3 +513,83 @@ class TestEstimateTokens:
         })
         after = agent.estimate_tokens()
         assert after > baseline
+
+
+COMPACT_SUMMARY_PROMPT_FRAGMENT = "## Goal"  # LLM 收到的 prompt 应含此结构
+
+
+class TestCompactContext:
+    def _make_agent_with_many_messages(self, mock_settings, registry, n_extra=25):
+        """创建一个消息数 > head_keep + tail_keep 的 agent。"""
+        llm = MagicMock(spec=LLMClient)
+        agent = Agent(llm, registry, mock_settings)
+        for i in range(n_extra):
+            agent.messages.append({"role": "user", "content": f"user msg {i}"})
+            agent.messages.append({"role": "assistant", "content": f"assistant reply {i}"})
+        return agent, llm
+
+    @pytest.mark.asyncio
+    async def test_compact_reduces_message_count(self, mock_settings, registry):
+        """压缩后消息总数应 < 压缩前。"""
+        agent, llm = self._make_agent_with_many_messages(mock_settings, registry)
+        before_count = len(agent.messages)
+
+        summary_response = MagicMock()
+        summary_response.choices[0].message.content = "## Goal\n- 测试目标\n## Key Actions\n- 无"
+        llm.chat = AsyncMock(return_value=summary_response)
+
+        before, after = await agent.compact_context()
+        assert before == before_count
+        assert after < before
+        # after = head_keep + 1(summary) + tail_keep = 3 + 1 + 20 = 24
+        assert after == mock_settings.head_keep + 1 + mock_settings.tail_keep
+
+    @pytest.mark.asyncio
+    async def test_compact_preserves_head_and_tail(self, mock_settings, registry):
+        """压缩应保留前 head_keep 条和后 tail_keep 条消息。"""
+        agent, llm = self._make_agent_with_many_messages(mock_settings, registry, n_extra=15)
+        first_msgs = agent.messages[:mock_settings.head_keep]
+        last_msgs = agent.messages[-mock_settings.tail_keep:]
+
+        summary_response = MagicMock()
+        summary_response.choices[0].message.content = "summary"
+        llm.chat = AsyncMock(return_value=summary_response)
+
+        await agent.compact_context()
+
+        assert agent.messages[:mock_settings.head_keep] == first_msgs
+        assert agent.messages[-mock_settings.tail_keep:] == last_msgs
+
+    @pytest.mark.asyncio
+    async def test_compact_inserts_summary_message(self, mock_settings, registry):
+        """压缩后中间应有一条含摘要内容的消息。"""
+        agent, llm = self._make_agent_with_many_messages(mock_settings, registry, n_extra=15)
+
+        summary_response = MagicMock()
+        summary_response.choices[0].message.content = "## Goal\n压缩测试"
+        llm.chat = AsyncMock(return_value=summary_response)
+
+        await agent.compact_context()
+
+        summary_msg = agent.messages[mock_settings.head_keep]
+        assert "压缩历史摘要" in summary_msg["content"]
+        assert "## Goal" in summary_msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_compact_calls_llm_with_structured_prompt(self, mock_settings, registry):
+        """compact_context 应调用 LLM 且 prompt 含结构化模板关键词。"""
+        agent, llm = self._make_agent_with_many_messages(mock_settings, registry, n_extra=15)
+
+        summary_response = MagicMock()
+        summary_response.choices[0].message.content = "ok"
+        llm.chat = AsyncMock(return_value=summary_response)
+
+        await agent.compact_context()
+
+        llm.chat.assert_called_once()
+        call_args = llm.chat.call_args
+        prompt_msgs = call_args.kwargs.get("messages") or call_args.args[0]
+        prompt_text = prompt_msgs[0]["content"]
+        assert "## Goal" in prompt_text
+        assert "## Key Actions" in prompt_text
+        assert "## Current State" in prompt_text
