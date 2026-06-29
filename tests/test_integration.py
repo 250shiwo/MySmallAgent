@@ -107,16 +107,21 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_registry_has_all_tools(self, registry):
-        """Default registry should have all 6 built-in tools."""
+        """Default registry should have all 12 built-in tools."""
         tools = registry.list_all()
         names = {t.name for t in tools}
-        assert names == {"read_file", "write_file", "list_directory", "execute_shell", "web_search", "current_time"}
+        assert names == {
+            "read_file", "write_file", "list_directory", "execute_shell",
+            "web_search", "current_time",
+            "grep_search", "fetch_url", "tree", "find_file",
+            "file_delete", "system_info",
+        }
 
     @pytest.mark.asyncio
     async def test_openai_tools_format_valid(self, registry):
         """OpenAI tools format should be valid for API calls."""
         openai_tools = registry.get_openai_tools()
-        assert len(openai_tools) == 6
+        assert len(openai_tools) == 12
         for tool_def in openai_tools:
             assert tool_def["type"] == "function"
             assert "name" in tool_def["function"]
@@ -125,7 +130,7 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_registry_with_memory_and_session_tools(self, settings, tmp_path):
-        """传入 memory_manager 和 sessions_dir 时应注册 8 个工具。"""
+        """传入 memory_manager 和 sessions_dir 时应注册 14 个工具。"""
         from pathlib import Path
         from my_small_agent.memory import MemoryManager
         mm = MemoryManager(tmp_path / "memory")
@@ -137,4 +142,4 @@ class TestIntegration:
         names = {t.name for t in registry.list_all()}
         assert "memory_save" in names
         assert "session_search" in names
-        assert len(names) == 8
+        assert len(names) == 14

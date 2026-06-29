@@ -14,12 +14,18 @@ from my_small_agent.config import Settings
 from my_small_agent.memory import MemoryManager
 from my_small_agent.tools.base import Tool
 from my_small_agent.tools.current_time import CurrentTimeTool
+from my_small_agent.tools.fetch_url import FetchUrlTool
+from my_small_agent.tools.file_delete import DeleteFileTool
 from my_small_agent.tools.file_read import ReadFileTool
 from my_small_agent.tools.file_write import WriteFileTool
+from my_small_agent.tools.find_file import FindFileTool
+from my_small_agent.tools.grep_search import GrepSearchTool
 from my_small_agent.tools.list_dir import ListDirectoryTool
 from my_small_agent.tools.memory_save import MemorySaveTool
 from my_small_agent.tools.session_search import SessionSearchTool
 from my_small_agent.tools.shell_exec import ExecuteShellTool
+from my_small_agent.tools.system_info import SystemInfoTool
+from my_small_agent.tools.tree import TreeTool
 from my_small_agent.tools.web_search import WebSearchTool
 
 
@@ -94,6 +100,12 @@ def create_default_registry(
       - execute_shell:   执行命令（危险，需确认）
       - web_search:      网页搜索（安全）
       - current_time:    当前时间（安全）
+      - grep_search:     递归搜索文件内容（安全）
+      - fetch_url:       获取URL纯文本（安全）
+      - tree:            展示目录树（安全）
+      - find_file:       按glob搜索文件（安全）
+      - file_delete:     删除文件（危险，需确认）
+      - system_info:     获取系统信息（安全）
 
     可选工具（需提供对应参数）：
       - memory_save:     保存长期记忆（safe，需 memory_manager）
@@ -106,6 +118,12 @@ def create_default_registry(
     registry.register(ExecuteShellTool())
     registry.register(WebSearchTool())
     registry.register(CurrentTimeTool(timezone=settings.timezone))
+    registry.register(GrepSearchTool())
+    registry.register(FetchUrlTool())
+    registry.register(TreeTool())
+    registry.register(FindFileTool())
+    registry.register(DeleteFileTool())
+    registry.register(SystemInfoTool())
     if memory_manager is not None:
         registry.register(MemorySaveTool(memory_manager))
     if sessions_dir is not None:
