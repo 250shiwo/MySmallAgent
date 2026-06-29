@@ -13,6 +13,8 @@ Agent 核心模块 - 管理对话循环和工具调用的核心逻辑。
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any, AsyncGenerator, Callable, Coroutine
 
 from my_small_agent.config import Settings
@@ -79,6 +81,11 @@ class Agent:
         self.messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
+
+        # 会话元数据（用于持久化）
+        self.session_id: str = str(uuid4())
+        self.session_title: str = ""
+        self.created_at: str = datetime.now(timezone.utc).isoformat()
 
     async def run_turn(
         self,
@@ -310,9 +317,30 @@ class Agent:
             if msg.get("role") == "assistant" and "reasoning_content" in msg:
                 del msg["reasoning_content"]
 
+    def reset_session(
+        self,
+        messages: list[dict] | None = None,
+        session_id: str | None = None,
+        title: str = "",
+        created_at: str | None = None,
+    ) -> None:
+        """
+        重置会话状态，用于 /new 和 /resume 命令。
+
+        保留 messages[0]（system prompt），替换其余所有消息。
+        不传 session_id 时自动生成新 UUID。
+        """
+        system_prompt = self.messages[0]
+        self.messages = [system_prompt]
+        if messages:
+            self.messages.extend(messages)
+        self.session_id = session_id or str(uuid4())
+        self.session_title = title
+        self.created_at = created_at or datetime.now(timezone.utc).isoformat()
+
     def clear_history(self) -> None:
         """
-        清空对话历史，但保留第一条 system prompt。
-        相当于"重新开始对话"。
+        清空对话历史，保留 system prompt，并生成新的 session_id。
+        相当于 /new 命令。
         """
-        self.messages = [self.messages[0]]
+        self.reset_session()
