@@ -152,10 +152,17 @@ class CLI:
         self.console.print()
         in_thinking = False
         thinking_buffer = ""  # detail 关闭时缓冲思维链内容
+        first_chunk = True  # 首批 chunk 到达前显示等待提示
+        self.console.print("[dim]⚡ 等待响应...[/dim]", end="\r")
 
         async for event_type, content in self.agent.run_turn_stream(
             user_input, self._confirm_dangerous_action
         ):
+            if first_chunk:
+                first_chunk = False
+                # 清除等待提示（用空格覆盖回车行）
+                self.console.print(" " * 30, end="\r")
+
             if event_type == "thinking":
                 if self._detail_enabled:
                     # detail 开启：实时展示思维链

@@ -593,3 +593,55 @@ class TestCompactContext:
         assert "## Goal" in prompt_text
         assert "## Key Actions" in prompt_text
         assert "## Current State" in prompt_text
+
+    @pytest.mark.asyncio
+    async def test_compact_boundary_avoids_orphaned_tool(self, mock_settings, registry):
+        """压缩后不应出现孤立的 tool 消息（没有对应的 assistant(tool_calls)）。"""
+        llm = MagicMock(spec=LLMClient)
+        agent = Agent(llm, registry, mock_settings)
+
+        # 构造含 tool_call 序列的消息列表
+        # system(1) + user(1) + assistant(tool_calls)(1) + tool(1) = 4 条开头
+        # 然后填充中间消息到 > 23 条
+        agent.messages = [{"role": "system", "content": "system prompt"}]
+        agent.messages.append({"role": "user", "content": "do something"})
+        agent.messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "tc1", "type": "function", "function": {"name": "safe_tool", "arguments": "{}"}}],
+        })
+        agent.messages.append({"role": "tool", "tool_call_id": "tc1", "content": "result"})
+        # 中间填充到足够多
+        for i in range(20):
+            agent.messages.append({"role": "user", "content": f"msg {i}"})
+            agent.messages.append({"role": "assistant", "content": f"reply {i}"})
+        # 末尾构造另一个 tool_call 序列，确保 tail 边界会落在 tool 消息上
+        agent.messages.append({"role": "user", "content": "last request"})
+        agent.messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "tc2", "type": "function", "function": {"name": "safe_tool", "arguments": "{}"}}],
+        })
+        agent.messages.append({"role": "tool", "tool_call_id": "tc2", "content": "last result"})
+        agent.messages.append({"role": "assistant", "content": "final reply"})
+
+        summary_response = MagicMock()
+        summary_response.choices[0].message.content = "summary"
+        llm.chat = AsyncMock(return_value=summary_response)
+
+        await agent.compact_context()
+
+        # 验证：不存在孤立的 tool 消息
+        for i, msg in enumerate(agent.messages):
+            if msg.get("role") == "tool":
+                # 前一条必须是含 tool_calls 的 assistant
+                assert i > 0, "tool 消息不能是第一条"
+                prev = agent.messages[i - 1]
+                assert prev.get("role") == "assistant" and prev.get("tool_calls"), \
+                    f"tool 消息（索引 {i}）前缺少对应的 assistant(tool_calls)"
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # 后面必须紧跟 tool 消息
+                assert i + 1 < len(agent.messages), \
+                    f"assistant(tool_calls) 消息（索引 {i}）后缺少 tool 响应"
+                assert agent.messages[i + 1].get("role") == "tool", \
+                    f"assistant(tool_calls) 消息（索引 {i}）后不是 tool 消息"

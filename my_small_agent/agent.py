@@ -393,13 +393,29 @@ class Agent:
         压缩对话历史，用 LLM 生成的摘要替换中间消息。
 
         算法：
-          保留 messages[:head_keep] + [摘要消息] + messages[-tail_keep:]
+          保留 messages[:head] + [摘要消息] + messages[tail_start:]
+          head 和 tail_start 会自动调整以避免切断 tool_call 序列。
 
         返回：(压缩前消息数, 压缩后消息数)
         """
+        total = len(self.messages)
         head = self.settings.head_keep
         tail = self.settings.tail_keep
-        middle = self.messages[head:-tail]
+
+        # 调整 head 边界：不以含 tool_calls 的 assistant 消息结尾
+        # （否则对应的 tool 响应会在中间被压缩掉，导致 tool_calls 无响应）
+        while head > 0 and self.messages[head - 1].get("tool_calls"):
+            head -= 1
+
+        # 调整 tail 边界：不以 tool 消息开头
+        # （否则对应的 assistant(tool_calls) 在中间被压缩掉，导致 tool 消息孤立）
+        tail_start = total - tail
+        while tail_start < total and self.messages[tail_start].get("role") == "tool":
+            tail_start += 1
+
+        head_msgs = self.messages[:head]
+        middle = self.messages[head:tail_start]
+        tail_msgs = self.messages[tail_start:]
 
         # 将中间消息序列化为文本供 LLM 压缩
         middle_text = "\n\n".join(
@@ -427,12 +443,12 @@ class Agent:
         )
         summary = response.choices[0].message.content or "(摘要生成失败)"
 
-        before_count = len(self.messages)
+        before_count = total
         summary_msg = {
             "role": "assistant",
             "content": f"[压缩历史摘要]\n\n{summary}",
         }
-        self.messages = self.messages[:head] + [summary_msg] + self.messages[-tail:]
+        self.messages = head_msgs + [summary_msg] + tail_msgs
         after_count = len(self.messages)
 
         return before_count, after_count
