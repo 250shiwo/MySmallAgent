@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-06-29T06:32:29Z"
+exported_at: "2026-06-30T01:30:56Z"
 modules:
     "":
-        dir_name: MySmallAgent 智能体核心架构
-        title: MySmallAgent 智能体核心架构
+        dir_name: MySmallAgent 智能体核心
+        title: MySmallAgent 智能体核心
         scope:
             - docs/
             - .gitignore
@@ -94,8 +94,8 @@ modules:
         depends_on: []
         related_to: []
     my_small_agent:
-        dir_name: 异步命令行智能体核心
-        title: 异步命令行智能体核心
+        dir_name: 异步 CLI 智能体核心
+        title: 异步 CLI 智能体核心
         scope:
             - my_small_agent/
         source_files: []

@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     enable_streaming: bool = True                    # 流式输出开关
     enable_thinking: bool = True                     # 思维链模式开关
     timezone: str = "Asia/Shanghai"                  # 时区（用于 current_time 工具）
-    max_context_tokens: int = 200000          # 上下文最大 token 数（估算上限）
-    head_keep: int = 3                        # 压缩时保留开头消息条数
-    tail_keep: int = 20                       # 压缩时保留末尾消息条数
-    compression_threshold: float = 0.8       # 自动触发压缩的 token 用量比例
+    max_context_tokens: int = 2000000          # 上下文最大 token 数（估算上限）
+    head_keep: int = 3                     # 压缩时保留开头消息条数
+    tail_keep: int = 20                    # 压缩时保留末尾消息条数
+    compression_threshold: float = 0.8     # 自动触发压缩的 token 用量比例
 
     # 告诉 pydantic-settings 从项目根目录的 .env 文件读取配置
     model_config = SettingsConfigDict(

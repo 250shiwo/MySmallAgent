@@ -222,3 +222,6 @@ __marimo__/
 
 # 技能生成的.superpowers
 .superpowers/
+
+# 数据
+.genesis
