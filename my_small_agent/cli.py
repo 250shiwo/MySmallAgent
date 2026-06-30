@@ -478,5 +478,7 @@ class CLI:
                 f"[green]✓ 上下文已压缩：{before} 条 → {after} 条消息 "
                 f"（节省 {before - after} 条）[/green]"
             )
+            # 压缩后保存会话到磁盘，确保 /resume 加载的是压缩后的版本
+            self._save_session()
         except Exception as e:
             self.console.print(f"[red]✗ 压缩失败：{e}[/red]")
