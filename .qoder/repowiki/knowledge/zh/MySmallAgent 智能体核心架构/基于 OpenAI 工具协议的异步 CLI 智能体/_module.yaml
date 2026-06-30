@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: my_small_agent
+title: 基于 OpenAI 工具协议的异步 CLI 智能体
+scope:
+    - my_small_agent/
+source_files: []
+depends_on: []
+related_to: []
