@@ -59,7 +59,7 @@ def test_compression_fields_defaults(monkeypatch):
     """压缩相关配置项应有正确默认值。"""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     settings = Settings(_env_file=None)
-    assert settings.max_context_tokens == 200000
+    assert settings.max_context_tokens == 2000000
     assert settings.head_keep == 3
     assert settings.tail_keep == 20
     assert settings.compression_threshold == 0.8
