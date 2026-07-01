@@ -7,7 +7,7 @@
 - **LLM 对话** — 基于 OpenAI tool_calls 原生流程，兼容所有 OpenAI API 格式的服务（DeepSeek、本地模型等）
 - **流式输出** — 实时逐字显示 LLM 回复，降低等待延迟
 - **思维链模式** — 接入 DeepSeek Thinking 能力，提升推理质量，思维内容可折叠/展开
-- **工具调用** — 中心化注册表，内置 12 个工具：
+- **工具调用** — 中心化注册表，运行时注册 17 个工具：
   - `read_file` — 读取文件内容
   - `write_file` — 写入文件
   - `list_directory` — 列出目录
@@ -20,6 +20,13 @@
   - `find_file` — 按 glob 模式递归搜索文件
   - `file_delete` — 删除文件（需确认）
   - `system_info` — 获取系统运行环境信息
+  - `memory_save` — 保存长期记忆
+  - `session_search` — 搜索历史会话
+  - `activate_skill` — 激活指定技能（LLM 自动调用）
+  - `deactivate_skill` — 取消当前技能（LLM 自动调用）
+  - `research_topic` — 组合工具：搜索 + 逐条获取页面，返回结构化结果
+- **技能系统** — 自动发现 `skills/` 下的 SKILL.md，支持 LLM 自动激活和用户手动激活（`/skill <name>`），技能指令通过 tool result 注入对话
+- **组合工具** — `research_topic` 链式编排 `web_search` + `fetch_url`，通过 `ToolRegistry.dispatch()` 实现工具间内部调用
 - **安全分级** — 只读工具自动执行，写入/删除类工具需用户确认
 - **Token 估算** — chars/4 算法实时估算上下文消耗，`/status` 展示用量进度
 - **上下文压缩** — 接近上限时自动触发 LLM 摘要压缩，也可 `/compact` 手动触发
@@ -83,6 +90,9 @@ uv run python -m my_small_agent
 |------|------|
 | `/help` | 显示帮助信息 |
 | `/tools` | 列出所有已注册工具 |
+| `/skills` | 列出所有可用技能 |
+| `/skill <name>` | 激活指定技能 |
+| `/unskill` | 取消当前激活的技能 |
 | `/stream` | 切换流式输出开关 |
 | `/think` | 切换思维链模式开关 |
 | `/detail` | 切换思维链详情展示（默认折叠，输入一次展开） |
@@ -100,30 +110,42 @@ uv run python -m my_small_agent
 
 ```
 my_small_agent/
-├── __main__.py       # 入口
-├── config.py         # 配置管理（pydantic-settings）
-├── agent.py          # 对话循环核心（含流式 + Token估算 + 上下文压缩）
-├── llm.py            # OpenAI 异步客户端（chat + chat_stream）
-├── cli.py            # CLI 交互层（斜杠命令 + 自动压缩触发）
-├── memory.py         # 长期记忆管理（memory.json）
-├── session.py        # 会话持久化（保存/恢复/搜索）
-└── tools/
-    ├── __init__.py       # 工具注册表（create_default_registry）
-    ├── base.py           # 工具抽象基类
-    ├── file_read.py      # 读取文件
-    ├── file_write.py     # 写入文件
-    ├── list_dir.py       # 列出目录
-    ├── shell_exec.py     # 执行 shell 命令
-    ├── web_search.py     # DuckDuckGo 网页搜索
-    ├── current_time.py   # 当前时间查询
-    ├── grep_search.py    # 递归搜索文件内容
-    ├── fetch_url.py      # 获取网页纯文本
-    ├── tree.py           # 目录树展示
-    ├── find_file.py      # glob 模式查找文件
-    ├── file_delete.py    # 删除文件
-    ├── system_info.py    # 系统环境信息
-    ├── memory_save.py    # 保存长期记忆
-    └── session_search.py # 搜索历史会话
+├── __main__.py            # 入口（组装所有组件并启动）
+├── config.py              # 配置管理（pydantic-settings）
+├── agent.py               # 对话循环核心（流式 + Token估算 + 上下文压缩）
+├── llm.py                 # OpenAI 异步客户端（chat + chat_stream）
+├── cli.py                 # CLI 交互层（斜杠命令 + 自动压缩触发）
+├── prompt.py              # 提示词管理（加载 system_prompt.md + 拼接技能索引）
+├── system_prompt.md       # 基础系统提示词
+├── memory.py              # 长期记忆管理（memory.json）
+├── session.py             # 会话持久化（保存/恢复/搜索）
+├── tools/
+│   ├── __init__.py            # 工具注册表（ToolRegistry + create_default_registry）
+│   ├── base.py                # 工具抽象基类
+│   ├── file_read.py           # 读取文件
+│   ├── file_write.py          # 写入文件
+│   ├── list_dir.py            # 列出目录
+│   ├── shell_exec.py          # 执行 shell 命令
+│   ├── web_search.py          # DuckDuckGo 网页搜索
+│   ├── current_time.py        # 当前时间查询
+│   ├── grep_search.py         # 递归搜索文件内容
+│   ├── fetch_url.py           # 获取网页纯文本
+│   ├── tree.py                # 目录树展示
+│   ├── find_file.py           # glob 模式查找文件
+│   ├── file_delete.py         # 删除文件
+│   ├── system_info.py         # 系统环境信息
+│   ├── memory_save.py         # 保存长期记忆
+│   ├── session_search.py      # 搜索历史会话
+│   ├── research_topic.py      # 组合工具（web_search + fetch_url 编排）
+│   ├── activate_skill.py     # 激活技能工具
+│   └── deactivate_skill.py   # 取消技能工具
+└── skills/
+    ├── __init__.py            # 技能模块入口（discover_skills + register_skill_tools）
+    ├── registry.py            # 技能注册表（SkillRegistry + SKILL.md 解析）
+    ├── code_assistant/
+    │   └── SKILL.md            # 代码助手技能指令
+    └── research/
+        └── SKILL.md            # 研究技能指令
 ```
 
 ## 开发
