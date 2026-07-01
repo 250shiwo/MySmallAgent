@@ -229,6 +229,9 @@ class CLI:
         支持的命令：
           /help     → 显示帮助信息
           /tools    → 列出所有已注册工具
+          /skills   → 列出所有可用技能
+          /skill    → 激活指定技能: /skill <name>
+          /unskill  → 取消当前激活的技能
           /stream   → 切换流式输出
           /think    → 切换思维链模式
           /detail   → 切换思维链详情展示（默认折叠）
@@ -247,6 +250,12 @@ class CLI:
             self._print_help()
         elif cmd == "/tools":
             self._print_tools()
+        elif cmd == "/skills":
+            self._print_skills()
+        elif cmd == "/skill":
+            self._activate_skill(command)
+        elif cmd == "/unskill":
+            self._deactivate_skill()
         elif cmd == "/stream":
             self._toggle_stream()
         elif cmd == "/think":
@@ -303,6 +312,14 @@ class CLI:
         max_tokens = self.agent.settings.max_context_tokens
         pct = int(tokens / max_tokens * 100) if max_tokens > 0 else 0
         token_line = f"  Token 用量: ~{tokens:,} / {max_tokens:,} ({pct}%)"
+
+        # 当前技能：从 skill_registry 取激活技能，无则显示"无"
+        skill_reg = getattr(self.agent, "_skill_registry", None)
+        active_skill = skill_reg.get_active() if skill_reg else None
+        skill_display = (
+            f"[green]{active_skill.name}[/green]" if active_skill else "[dim]无[/dim]"
+        )
+
         self.console.print(
             Panel(
                 f"  模型:       [bold]{self.agent.llm.model}[/bold]\n"
@@ -310,6 +327,7 @@ class CLI:
                 f"  思维链:     {thinking}\n"
                 f"  详情展示:   {detail}\n"
                 f"{token_line}\n"
+                f"  当前技能:   {skill_display}\n"
                 f"  当前会话:   [dim]{self.agent.session_id[:8]}[/dim]  "
                 f"{self.agent.session_title or '(未命名)'}",
                 title="当前状态",
@@ -325,6 +343,9 @@ class CLI:
                 "Type your message to chat, or use commands:\n"
                 "  /help   - Show help\n"
                 "  /tools  - List available tools\n"
+                "  /skills - List available skills\n"
+                "  /skill  - Activate a skill: /skill <name>\n"
+                "  /unskill - Deactivate current skill\n"
                 "  /stream - Toggle streaming output\n"
                 "  /think  - Toggle thinking mode\n"
                 "  /detail - Toggle thinking detail view\n"
@@ -348,6 +369,9 @@ class CLI:
                 "[bold]Available Commands:[/bold]\n\n"
                 "  [cyan]/help[/cyan]   - Show this help message\n"
                 "  [cyan]/tools[/cyan]  - List all registered tools\n"
+                "  [cyan]/skills[/cyan] - List available skills\n"
+                "  [cyan]/skill[/cyan]  - Activate a skill: /skill <name>\n"
+                "  [cyan]/unskill[/cyan] - Deactivate current skill\n"
                 "  [cyan]/stream[/cyan] - Toggle streaming output\n"
                 "  [cyan]/think[/cyan]  - Toggle thinking mode\n"
                 "  [cyan]/detail[/cyan] - Toggle thinking detail view\n"
@@ -391,6 +415,62 @@ class CLI:
                 border_style="cyan",
             )
         )
+
+    def _print_skills(self) -> None:
+        """列出所有可用技能，标记当前激活的和 auto-only 的。"""
+        skill_reg = getattr(self.agent, "_skill_registry", None)
+        if skill_reg is None:
+            self.console.print("[yellow]技能系统未初始化。[/yellow]")
+            return
+
+        names = skill_reg.get_all_names()
+        if not names:
+            self.console.print("[dim]暂无可用技能。[/dim]")
+            return
+
+        active = skill_reg.get_active()
+        lines = []
+        for name in names:
+            skill = skill_reg.get_skill(name)
+            if skill is None:
+                continue
+            # 激活的技能前显示 ▶ 标记
+            marker = "[cyan]▶[/cyan] " if (active and active.name == name) else "  "
+            # auto-only 技能附加灰显标签
+            invocable_tag = "" if skill.user_invocable else " [dim](auto-only)[/dim]"
+            lines.append(
+                f"{marker}[bold]{skill.name}[/bold]{invocable_tag}\n"
+                f"    [dim]{skill.description}[/dim]"
+            )
+
+        self.console.print(
+            Panel(
+                "\n\n".join(lines),
+                title=f"可用技能 ({len(names)})",
+                border_style="magenta",
+            )
+        )
+
+    def _activate_skill(self, command: str) -> None:
+        """手动激活指定技能。"""
+        parts = command.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            self.console.print(
+                "[yellow]用法：/skill <name>[/yellow]\n"
+                "  使用 /skills 查看可用技能列表"
+            )
+            return
+        name = parts[1].strip()
+        result = self.agent.activate_skill(name)
+        if "error" in result.lower():
+            self.console.print(f"[red]{result}[/red]")
+        else:
+            self.console.print(f"[green]✓ {result}[/green]")
+
+    def _deactivate_skill(self) -> None:
+        """取消当前激活的技能。"""
+        result = self.agent.deactivate_skill()
+        self.console.print(f"[cyan]{result}[/cyan]")
 
     def _print_sessions(self) -> None:
         """列出所有历史会话，按 updated_at 倒序展示。"""
