@@ -42,8 +42,8 @@ class ResearchTopicTool(Tool):
         query = kwargs.get("query", "")
         max_sources = kwargs.get("max_sources", 3)
 
-        # Step 1: 搜索
-        search_raw = await self._registry.dispatch("web_search", {"query": query})
+        # Step 1: 搜索（raw=True 获取 JSON 格式以便程序化解析）
+        search_raw = await self._registry.dispatch("web_search", {"query": query, "raw": True})
         try:
             search_data = json.loads(search_raw)
         except json.JSONDecodeError:

@@ -1,40 +1,23 @@
-## 1. 核心系统与工具
-MySmallAgent 采用 **pydantic-settings** 作为其配置管理的核心框架。该系统利用 Pydantic 的数据验证能力，结合环境变量（Environment Variables）和 `.env` 文件，实现类型安全、自动加载且易于测试的配置管理方案。
+## 1. 系统与工具
+MySmallAgent 采用 **pydantic-settings** 作为核心配置管理框架，结合 Python 原生的环境变量机制实现运行时配置的加载。该系统支持从 `.env` 文件自动读取配置，并允许通过系统环境变量进行覆盖，确保了配置管理的类型安全（Type Safety）和灵活性。
 
-## 2. 关键文件与职责
-- `my_small_agent/config.py`: 定义 `Settings` 类，继承自 `BaseSettings`。这是配置系统的唯一入口，负责声明所有配置项及其默认值。
-- `.env.example`: 提供环境变量的模板，列出了必需的配置项（如 `OPENAI_API_KEY`）和可选配置项。
-- `pyproject.toml`: 声明了 `pydantic-settings>=2.0` 依赖，确保运行时环境具备配置加载能力。
-- `tests/test_config.py`: 包含针对配置加载逻辑的单元测试，验证了从环境变量读取以及默认值回退的行为。
+## 2. 关键文件与逻辑
+- **`my_small_agent/config.py`**: 配置系统的核心实现。定义了 `Settings` 类，继承自 `pydantic_settings.BaseSettings`。该类声明了所有应用级配置项，并通过 `SettingsConfigDict` 指定配置文件路径。
+- **`.env.example`**: 配置模板文件，列出了所有必需和可选的环境变量及其默认值示例，供开发者复制为 `.env` 使用。
+- **`.gitignore`**: 明确排除了 `.env` 文件，防止敏感信息（如 API Key）泄露到版本控制系统中。
+- **`docs/superpowers/specs/2026-06-22-agent-core-design.md`**: 详细记录了配置模块的设计规范，包括字段定义、默认值策略以及与其他模块（如 LLM 客户端）的集成方式。
 
-## 3. 架构设计与约定
-### 3.1 集中化配置模型
-所有应用配置被封装在单一的 `Settings` 类中：
-```python
-class Settings(BaseSettings):
-    openai_api_key: str
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o"
-    max_iterations: int = 10
+## 3. 架构与约定
+- **配置项定义**：
+  - `OPENAI_API_KEY` (str): 必填项，用于身份验证。
+  - `OPENAI_BASE_URL` (str): 选填项，默认为 `https://api.openai.com/v1`，支持自定义 API 端点。
+  - `OPENAI_MODEL` (str): 选填项，默认为 `gpt-4o`。
+  - `MAX_ITERATIONS` (int): 选填项，默认为 `10`，用于限制 Agent 的单次对话循环次数。
+- **加载优先级**：遵循 `pydantic-settings` 的标准行为，即 **环境变量 > .env 文件 > 代码默认值**。这种分层设计使得在容器化部署或 CI/CD 环境中可以通过注入环境变量轻松覆盖本地开发配置。
+- **初始化模式**：在应用入口（`__main__.py`）处实例化 `Settings()`，并将其作为依赖注入到 `LLMClient` 和 `Agent` 等核心组件中，确保全局配置的一致性。
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-    )
-```
-这种设计确保了配置项的类型安全（例如 `max_iterations` 必须是整数），并提供了清晰的文档化默认值。
-
-### 3.2 优先级策略
-配置加载遵循标准的优先级顺序：
-1. **环境变量**：直接在操作系统或 shell 中设置的变量（如 `export OPENAI_MODEL=gpt-4o-mini`）具有最高优先级。
-2. **.env 文件**：项目根目录下的 `.env` 文件作为次级来源。
-3. **代码默认值**：在 `Settings` 类中定义的默认值作为最后兜底。
-
-### 3.3 启动时初始化
-在应用入口 `my_small_agent/__main__.py` 中，`Settings()` 实例在异步主循环启动前被同步实例化。如果缺少必需的配置项（如 `OPENAI_API_KEY`），`pydantic-settings` 会在启动阶段立即抛出 `ValidationError`，从而实现“快速失败”（Fail-fast）原则。
-
-## 4. 开发者规范
-- **新增配置项**：必须在 `my_small_agent/config.py` 的 `Settings` 类中添加字段。如果是敏感信息（如 API Key），不应设置默认值以强制要求用户显式配置。
-- **环境变量命名**：遵循全大写、下划线分隔的命名规范（SNAKE_CASE），例如 `OPENAI_BASE_URL`。
-- **本地开发**：复制 `.env.example` 为 `.env` 并填入实际值。`.env` 文件已被 `.gitignore` 排除，严禁提交到版本控制系统。
-- **测试隔离**：在编写单元测试时，应使用 `_env_file=None` 参数实例化 `Settings` 并配合 `patch.dict(os.environ, ...)` 来模拟不同的配置环境，避免依赖本地的 `.env` 文件。
+## 4. 开发者规则
+- **敏感信息管理**：严禁将真实的 `OPENAI_API_KEY` 提交到 Git 仓库。必须使用 `.env.example` 作为模板，并在本地创建 `.env` 文件存储真实密钥。
+- **新增配置项**：若需添加新配置，必须在 `config.py` 的 `Settings` 类中定义字段，并同步更新 `.env.example` 以提供示例。对于非必填项，应提供合理的默认值以保证应用在最小配置下仍可运行。
+- **类型约束**：所有配置项必须利用 Pydantic 的类型系统进行严格定义（如 `int`, `str`），避免在运行时出现类型转换错误。
+- **测试隔离**：在编写单元测试时，应通过 `patch.dict(os.environ)` 或传递 `_env_file=None` 来隔离环境干扰，确保测试的可重复性。

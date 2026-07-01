@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import json
 
 from ddgs import DDGS
 
@@ -42,19 +43,14 @@ class WebSearchTool(Tool):
 
     async def execute(self, **kwargs) -> str:
         """
-        执行搜索并返回格式化结果。
+        执行搜索并返回结果。
 
-        返回格式示例：
-          1. 标题
-             URL: https://...
-             摘要内容
-
-          2. 标题
-             URL: https://...
-             摘要内容
+        raw=False（默认，供 LLM 使用）：返回人类可读的格式化文本。
+        raw=True（供组合工具内部使用）：返回 JSON 格式以便程序化解析。
         """
         query = kwargs["query"]
         max_results = kwargs.get("max_results", 5)
+        raw = kwargs.get("raw", False)
 
         try:
             # 在线程池中执行同步的 DDGS.text()，避免阻塞事件循环
@@ -63,7 +59,10 @@ class WebSearchTool(Tool):
             )
 
             if not results:
-                return "No results found."
+                return json.dumps({"results": []}) if raw else "No results found."
+
+            if raw:
+                return json.dumps({"results": results}, ensure_ascii=False)
 
             formatted = []
             for i, r in enumerate(results, 1):

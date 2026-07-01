@@ -5,8 +5,8 @@ scope: []
 source_files:
     - my_small_agent/config.py
     - .env.example
-    - .gitignore
-    - docs/superpowers/specs/2026-06-22-agent-core-design.md
-    - docs/superpowers/plans/2026-06-22-agent-core.md
+    - pyproject.toml
+    - tests/test_config.py
+    - my_small_agent/__main__.py
 depends_on: []
 related_to: []
