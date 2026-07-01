@@ -113,3 +113,31 @@ class TestAgentSkillActivation:
         agent.activate_skill("research")
         result = agent.deactivate_skill()
         assert skill_reg.get_active() is None
+
+
+class TestResetSessionSkillState:
+    """reset_session 后技能状态重置测试。"""
+
+    def test_reset_session_deactivates_skill(self, mock_settings, mock_prompt_manager, skill_reg):
+        llm = MagicMock()
+        registry = ToolRegistry()
+        agent = Agent(llm, registry, mock_settings, prompt_manager=mock_prompt_manager)
+        agent._skill_registry = skill_reg
+
+        # 激活技能，确认已激活
+        agent.activate_skill("research")
+        assert skill_reg.get_active() is not None
+
+        # 重置会话后，技能应被取消激活
+        agent.reset_session()
+        assert skill_reg.get_active() is None
+
+    def test_reset_session_without_skill_registry(self, mock_settings, mock_prompt_manager):
+        """未注入 skill_registry 时 reset_session 不应报错。"""
+        llm = MagicMock()
+        registry = ToolRegistry()
+        agent = Agent(llm, registry, mock_settings, prompt_manager=mock_prompt_manager)
+        # _skill_registry 保持 None
+        agent.reset_session()
+        assert agent._skill_registry is None
+        assert len(agent.messages) == 1  # 仅 system prompt

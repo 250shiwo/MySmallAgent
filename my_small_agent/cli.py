@@ -462,7 +462,7 @@ class CLI:
             return
         name = parts[1].strip()
         result = self.agent.activate_skill(name)
-        if "error" in result.lower():
+        if result.startswith("Error:"):
             self.console.print(f"[red]{result}[/red]")
         else:
             self.console.print(f"[green]✓ {result}[/green]")

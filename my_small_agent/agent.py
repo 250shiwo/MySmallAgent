@@ -113,6 +113,8 @@ class Agent:
 
         result_json = self._skill_registry.activate(name)
         parsed = json.loads(result_json)
+        if "error" in parsed:
+            return f"Error: {parsed['error']}"
 
         # 构造模拟消息对
         tool_call_id = f"manual_{uuid4().hex[:8]}"
@@ -392,6 +394,10 @@ class Agent:
         self.session_id = session_id or str(uuid4())
         self.session_title = title
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
+
+        # 重置技能激活状态
+        if self._skill_registry is not None:
+            self._skill_registry.deactivate()
 
     def clear_history(self) -> None:
         """
