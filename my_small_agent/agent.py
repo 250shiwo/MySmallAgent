@@ -26,44 +26,6 @@ from my_small_agent.tools import ToolRegistry
 # 参数：(工具名称, 工具描述, 参数字典) → 返回：bool（是否允许执行）
 ConfirmCallback = Callable[[str, str, dict], Coroutine[Any, Any, bool]]
 
-# System Prompt：告诉模型它的身份和能力
-SYSTEM_PROMPT = """你是一个运行在命令行终端中的通用任务助手（CLI Agent），同时拥有西宫硝子的性格与说话习惯。
-
-## 基础工具能力
-- 文件读写和目录浏览
-- 执行 Shell 命令
-- 联网搜索获取实时信息
-- 查询当前时间
-- 搜索文件内容（grep_search）、获取网页内容（fetch_url）
-- 展示目录树（tree）、按名称查找文件（find_file）
-- 删除文件（file_delete）、获取系统信息（system_info）
-
-## 工作原则
-- 高效完成用户任务，避免冗余解释
-- 输出简洁清晰，适合终端阅读
-- 避免使用复杂 Markdown（如表格、嵌套列表），终端渲染有限
-- 代码块和简单列表可以使用
-- 优先用中文回复，除非用户使用英文提问
-- 搜索最多尝试 2 次，用已有结果回答；不要反复换关键词重试
-- 如果搜索无结果或工具失败，直接告知用户并给出建议
-
-## 长期记忆工具使用原则
-- 使用 memory_save 保存：用户偏好、环境细节、工具特性、稳定约定
-- 不保存：任务进度、会话结果、临时状态（临时信息用 session_search 回忆）
-- 优先保存能减少未来用户纠正/提醒的信息
-- 使用 session_search 搜索过去的对话内容
-
-## 西宫硝子人设附加规则（全程生效）
-1. 性格温柔怯懦、心思细腻，说话轻声温和，很少强硬语气，结尾常带软语气助词「啦」「呢」「喔」
-2. 听力存在障碍，若用户指令模糊、简写严重会小声委婉询问确认，不会直接否定用户
-3. 待人包容体贴，操作报错、命令失败时不会直白生硬告知，会温柔说明并给出简易解决办法
-4. 自带轻微自卑感，完成任务后会小心翼翼询问「这样处理可以吗？」
-5. 克制情绪，极少使用感叹号，文字平缓柔和，不使用尖锐、强势词汇
-6. 执行终端操作、输出命令结果时，基础终端信息保持简洁标准，仅对话口吻贴合硝子人设，命令、代码、路径内容不做拟人化改动
-7. 不会主动长篇闲聊，仅在任务间隙简短温柔回应，专注完成终端指令
-"""
-
-
 @dataclass
 class AgentResponse:
     """Agent 单轮对话的返回结果。"""
@@ -88,6 +50,7 @@ class Agent:
         registry: ToolRegistry,
         settings: Settings,
         memory_manager: MemoryManager | None = None,
+        prompt_manager: "PromptManager | None" = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -99,9 +62,20 @@ class Agent:
         self.thinking_enabled: bool = getattr(settings, 'enable_thinking', True)
 
         # 初始化对话历史，第一条始终是 system prompt
+        # 如果提供了 PromptManager，使用它；否则从默认文件加载
+        if prompt_manager is not None:
+            system_content = prompt_manager.get_system_prompt()
+        else:
+            from my_small_agent.prompt import PromptManager as _PM
+            _default_pm = _PM()
+            system_content = _default_pm.get_system_prompt()
+
         self.messages: list[dict] = [
-            {"role": "system", "content": SYSTEM_PROMPT}
+            {"role": "system", "content": system_content}
         ]
+
+        # 技能注册表引用（由 CLI 启动时注入，用于手动激活/取消技能）
+        self._skill_registry = None
 
         # 会话元数据（用于持久化）
         self.session_id: str = str(uuid4())
@@ -120,6 +94,52 @@ class Agent:
                         "[本会话中新保存的记忆将在下次会话生效]"
                     ),
                 })
+
+    def activate_skill(self, name: str) -> str:
+        """
+        CLI 手动激活技能。
+
+        构造模拟的 assistant tool_call + tool result 消息对注入 self.messages，
+        使 LLM 后续能看到技能指令。
+        user_invocable: false 的技能拒绝手动激活。
+        """
+        if self._skill_registry is None:
+            return "Error: Skill registry not initialized."
+        skill = self._skill_registry.get_skill(name)
+        if skill is None:
+            return f"Error: Skill '{name}' not found."
+        if not skill.user_invocable:
+            return f"Error: Skill '{name}' is auto-only and cannot be manually activated."
+
+        result_json = self._skill_registry.activate(name)
+        parsed = json.loads(result_json)
+
+        # 构造模拟消息对
+        tool_call_id = f"manual_{uuid4().hex[:8]}"
+        self.messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": "activate_skill",
+                    "arguments": json.dumps({"skill_name": name}),
+                },
+            }],
+        })
+        self.messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": parsed["prompt_text"],
+        })
+        return f"Skill '{name}' activated."
+
+    def deactivate_skill(self) -> str:
+        """CLI 手动取消技能。"""
+        if self._skill_registry is None:
+            return "No skill registry."
+        return self._skill_registry.deactivate()
 
     async def run_turn(
         self,
@@ -361,7 +381,7 @@ class Agent:
         """
         重置会话状态，用于 /new 和 /resume 命令。
 
-        保留所有 role=system 的消息（包含 SYSTEM_PROMPT 和记忆注入消息）。
+        保留所有 role=system 的消息（包含系统提示词和记忆注入消息）。
         不传 session_id 时自动生成新 UUID。
         """
         # 保留所有 system 消息（含记忆注入消息），清空其余

@@ -36,6 +36,9 @@ async def main() -> None:
         from my_small_agent.session import SessionManager   # 会话持久化
         from my_small_agent.memory import MemoryManager        # 长期记忆
         from my_small_agent.cli import CLI                 # 终端交互
+        from my_small_agent.skills import discover_skills, skill_registry, build_skills_index, register_skill_tools
+        from my_small_agent.prompt import PromptManager
+        from my_small_agent.tools.research_topic import ResearchTopicTool
 
         # 1. 加载配置（从 .env 文件和环境变量）
         settings = Settings()
@@ -53,8 +56,20 @@ async def main() -> None:
             sessions_dir=Path(".genesis") / "sessions",
         )
 
-        # 5. 创建 Agent（组装 LLM + 工具 + 配置 + 长期记忆）
-        agent = Agent(llm_client, registry, settings, memory_manager=memory_manager)
+        # 4.5 发现并注册所有技能
+        discover_skills()
+
+        # 4.6 注册 skill 工具 + 组合工具到 ToolRegistry
+        register_skill_tools(registry, skill_registry)
+        registry.register(ResearchTopicTool(registry))
+
+        # 4.7 初始化 PromptManager（加载基础提示词 + 拼接技能索引）
+        prompt_manager = PromptManager()
+        prompt_manager.update_skills_index(build_skills_index())
+
+        # 5. 创建 Agent（组装 LLM + 工具 + 配置 + 长期记忆 + 提示词管理）
+        agent = Agent(llm_client, registry, settings, memory_manager=memory_manager, prompt_manager=prompt_manager)
+        agent._skill_registry = skill_registry
 
         # 6. 创建会话管理器（保存到 .genesis/sessions/）
         session_manager = SessionManager(Path(".genesis") / "sessions")

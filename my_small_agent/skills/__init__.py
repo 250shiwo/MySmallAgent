@@ -68,3 +68,11 @@ def build_skills_index() -> str:
             lines.append(f"- {skill.name}: {skill.description}")
 
     return "\n".join(lines)
+
+
+def register_skill_tools(tool_registry, skill_reg: SkillRegistry) -> None:
+    """将 activate_skill 和 deactivate_skill 工具注册到 ToolRegistry。"""
+    from my_small_agent.tools.activate_skill import ActivateSkillTool
+    from my_small_agent.tools.deactivate_skill import DeactivateSkillTool
+    tool_registry.register(ActivateSkillTool(skill_reg))
+    tool_registry.register(DeactivateSkillTool(skill_reg))
