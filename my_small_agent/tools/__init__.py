@@ -36,6 +36,7 @@ class ToolRegistry:
     职责：
       - register(): 注册新工具
       - get():      按名称查找工具
+      - dispatch():  内部异步调用工具，用于组合工具编排
       - get_openai_tools(): 将所有工具转为 OpenAI API 格式
       - list_all(): 列出所有已注册工具
     """
@@ -51,6 +52,22 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         """通过名称查找工具，找不到返回 None。"""
         return self._tools.get(name)
+
+    async def dispatch(self, name: str, args: dict) -> str:
+        """
+        内部调用：按名称查找工具并执行，用于组合工具编排。
+
+        工具不存在时返回 JSON 错误信息，不抛异常。
+        """
+        import json
+
+        tool = self.get(name)
+        if tool is None:
+            return json.dumps({"error": f"Tool '{name}' not found"})
+        try:
+            return await tool.execute(**args)
+        except Exception as e:
+            return json.dumps({"error": f"Tool '{name}' execution failed: {e}"})
 
     def get_openai_tools(self) -> list[dict]:
         """
