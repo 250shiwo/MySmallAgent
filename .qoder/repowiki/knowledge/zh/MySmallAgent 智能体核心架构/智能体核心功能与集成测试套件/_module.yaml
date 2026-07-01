@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: tests
-title: 核心组件与业务闭环测试套件
+title: 智能体核心功能与集成测试套件
 scope:
     - tests/
 source_files: []

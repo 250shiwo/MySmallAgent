@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-06-30T01:58:51Z"
+exported_at: "2026-07-01T07:06:45Z"
 modules:
     "":
         dir_name: MySmallAgent 智能体核心架构
@@ -94,8 +94,8 @@ modules:
         depends_on: []
         related_to: []
     my_small_agent:
-        dir_name: 基于 OpenAI 工具协议的异步 CLI 智能体
-        title: 基于 OpenAI 工具协议的异步 CLI 智能体
+        dir_name: 异步命令行智能体核心
+        title: 异步命令行智能体核心
         scope:
             - my_small_agent/
         source_files: []
@@ -103,8 +103,8 @@ modules:
         depends_on: []
         related_to: []
     tests:
-        dir_name: 核心组件与业务闭环测试套件
-        title: 核心组件与业务闭环测试套件
+        dir_name: 智能体核心功能与集成测试套件
+        title: 智能体核心功能与集成测试套件
         scope:
             - tests/
         source_files: []
