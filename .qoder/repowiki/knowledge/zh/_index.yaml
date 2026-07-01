@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-01T07:33:44Z"
+exported_at: "2026-07-01T08:02:07Z"
 modules:
     "":
-        dir_name: MySmallAgent 核心编排层
-        title: MySmallAgent 核心编排层
+        dir_name: MySmallAgent 智能体核心平台
+        title: MySmallAgent 智能体核心平台
         scope:
             - docs/
             - .gitignore
@@ -39,9 +39,9 @@ modules:
         source_files:
             - my_small_agent/config.py
             - .env.example
-            - .gitignore
-            - docs/superpowers/specs/2026-06-22-agent-core-design.md
-            - docs/superpowers/plans/2026-06-22-agent-core.md
+            - pyproject.toml
+            - tests/test_config.py
+            - my_small_agent/__main__.py
         children: []
         depends_on: []
         related_to: []

@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: MySmallAgent 核心编排层
+title: MySmallAgent 智能体核心平台
 scope:
     - docs/
     - .gitignore
