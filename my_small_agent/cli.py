@@ -15,6 +15,7 @@ CLI 交互层 - 处理终端的用户输入输出和斜杠命令。
 
 from pathlib import Path
 
+import questionary
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -23,7 +24,11 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from my_small_agent.agent import Agent
+from my_small_agent.agent import Agent, AgentResponse
+from my_small_agent.plan import (
+    Plan, PlanPhase, StepStatus,
+    parse_plan, render_plan_review, render_plan_progress, render_plan_summary,
+)
 from my_small_agent.session import AmbiguousPrefixError, SessionManager
 
 
@@ -45,6 +50,7 @@ class CLI:
         self.session: PromptSession = PromptSession()  # prompt_toolkit 的输入会话
         self._running = True                # REPL 循环的控制标志
         self._detail_enabled = False        # 思维链详情展示开关（默认折叠）
+        self._active_plan: Plan | None = None  # 当前活跃计划
 
     async def run(self) -> None:
         """
@@ -84,6 +90,12 @@ class CLI:
 
     async def _run_agent_turn(self, user_input: str) -> None:
         """根据 streaming 状态选择流式或非流式对话，完成后自动保存会话。"""
+        if self.agent.plan_mode:
+            await self._run_plan_turn(user_input)
+            self._save_session()
+            await self._auto_compact_if_needed()
+            return
+
         if self.agent.streaming_enabled:
             await self._run_agent_turn_stream(user_input)
         else:
@@ -130,6 +142,171 @@ class CLI:
             )
         except Exception as e:
             self.console.print(f"[yellow]⚠ 会话保存失败：{e}[/yellow]")
+
+    async def _run_plan_turn(self, user_input: str) -> None:
+        """
+        Plan 模式下的对话轮次：Agent 探索并生成计划，然后进入审阅。
+
+        流程：
+          1. 执行 Agent 对话（展示探索过程，捕获完整响应）
+          2. 尝试解析计划
+          3. 解析成功 → 进入审阅流程
+          4. 解析失败 → 按普通回复展示（已由 run_turn 输出）
+        """
+        # 1. 执行 Agent 对话
+        if self.agent.streaming_enabled:
+            response = await self._run_plan_turn_stream(user_input)
+        else:
+            response = await self._run_plan_turn_normal(user_input)
+
+        # 2. 尝试解析计划
+        plan = parse_plan(response.content, user_goal=user_input)
+
+        if plan is None:
+            return  # 未解析到计划，已按普通回复展示
+
+        # 3. 进入审阅流程
+        plan.phase = PlanPhase.REVIEWING
+        await self._review_plan(plan, user_input)
+
+    async def _run_plan_turn_normal(self, user_input: str) -> AgentResponse:
+        """Plan 模式非流式：执行对话并返回 AgentResponse（供解析）。"""
+        with Status("[bold cyan]Thinking...", console=self.console):
+            response = await self.agent.run_turn(
+                user_input,
+                confirm_callback=self._confirm_dangerous_action,
+            )
+
+        self.console.print()
+        if response.thinking:
+            if self._detail_enabled:
+                self.console.print(f"[dim]💭 {response.thinking}[/dim]")
+                self.console.print()
+            else:
+                self.console.print("[dim]💭 thinking...[/dim]")
+                self.console.print()
+        self.console.print(Markdown(response.content))
+        self.console.print()
+        return response
+
+    async def _run_plan_turn_stream(self, user_input: str) -> AgentResponse:
+        """Plan 模式流式：展示流式输出并返回 AgentResponse（供解析）。"""
+        self.console.print()
+        in_thinking = False
+        thinking_buffer = ""
+        first_chunk = True
+        full_content = ""
+        self.console.print("[dim]⚡ 等待响应...[/dim]", end="\r")
+
+        async for event_type, content in self.agent.run_turn_stream(
+            user_input, self._confirm_dangerous_action
+        ):
+            if first_chunk:
+                first_chunk = False
+                self.console.print(" " * 30, end="\r")
+
+            if event_type == "thinking":
+                if self._detail_enabled:
+                    if not in_thinking:
+                        self.console.print("[dim]💭 ", end="")
+                        in_thinking = True
+                    self.console.print(f"[dim]{content}[/dim]", end="")
+                else:
+                    thinking_buffer += content
+
+            elif event_type == "content":
+                full_content += content
+                if self._detail_enabled and in_thinking:
+                    self.console.print()
+                    self.console.print()
+                    in_thinking = False
+                elif not self._detail_enabled and thinking_buffer:
+                    self.console.print("[dim]💭 thinking...[/dim]")
+                    self.console.print()
+                    thinking_buffer = ""
+                self.console.print(content, end="")
+
+        if in_thinking:
+            self.console.print()
+        self.console.print()
+        self.console.print()
+
+        return AgentResponse(content=full_content)
+
+    async def _review_plan(self, plan: Plan, user_input: str) -> None:
+        """
+        审阅计划：展示面板，用户选择 Accept / Modify / Cancel。
+
+        Modify 流程：用户输入反馈 → LLM 修订 → 重新审阅（最多 3 轮）。
+        """
+        modify_rounds = 0
+        max_modify_rounds = 3
+
+        while True:
+            # 展示计划审阅面板
+            render_plan_review(plan, self.console)
+            self.console.print()
+
+            # 用户选择
+            choice = await questionary.select(
+                "请选择操作：",
+                choices=["Accept", "Modify", "Cancel"],
+            ).ask_async()
+
+            if choice == "Accept":
+                plan.phase = PlanPhase.EXECUTING
+                await self._execute_plan(plan)
+                return
+
+            elif choice == "Modify":
+                if modify_rounds >= max_modify_rounds:
+                    self.console.print(
+                        f"[yellow]已达到最大修改次数（{max_modify_rounds} 轮），"
+                        f"请选择 Accept 或 Cancel。[/yellow]"
+                    )
+                    continue
+
+                modify_rounds += 1
+                # 获取用户反馈
+                with patch_stdout():
+                    feedback = await self.session.prompt_async(
+                        HTML('<ansiyellow>请输入修改意见: </ansiyellow>')
+                    )
+
+                if not feedback.strip():
+                    continue
+
+                # 构造修订请求：原始计划 + 用户反馈
+                revise_prompt = (
+                    f"以下是之前的计划，用户提出了修改意见，请生成修订版计划。\n\n"
+                    f"原始计划：\n{plan.raw_plan_text}\n\n"
+                    f"用户修改意见：{feedback}\n\n"
+                    f"请按照相同格式输出修订后的计划。"
+                )
+
+                # 发送给 LLM 生成修订版
+                with Status("[bold cyan]修订计划中...", console=self.console):
+                    response = await self.agent.run_turn(
+                        revise_prompt,
+                        confirm_callback=self._confirm_dangerous_action,
+                    )
+
+                self.console.print()
+                self.console.print(Markdown(response.content))
+                self.console.print()
+
+                # 重新解析
+                new_plan = parse_plan(response.content, user_goal=user_input)
+                if new_plan is not None:
+                    plan = new_plan
+                else:
+                    self.console.print(
+                        "[yellow]未能解析修订后的计划，请重新选择。[/yellow]"
+                    )
+
+            elif choice == "Cancel":
+                self.console.print("[dim]计划已取消。[/dim]")
+                return
 
     async def _run_agent_turn_normal(self, user_input: str) -> None:
         """非流式模式：等待完整响应后渲染。"""
