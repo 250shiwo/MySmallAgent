@@ -142,3 +142,77 @@ def _try_parse_loose(text: str, user_goal: str) -> Optional[Plan]:
         steps=steps,
         raw_plan_text=text,
     )
+
+
+# === 渲染函数 ===
+
+from rich.panel import Panel
+
+
+# 状态图标和颜色映射
+_STATUS_ICONS = {
+    StepStatus.PENDING: ("○", "dim", "Pending"),
+    StepStatus.IN_PROGRESS: ("●", "yellow", "In Progress..."),
+    StepStatus.DONE: ("✓", "green", "Done"),
+    StepStatus.FAILED: ("✗", "red", "Failed"),
+    StepStatus.SKIPPED: ("—", "dim", "Skipped"),
+}
+
+
+def render_plan_review(plan: "Plan", console) -> None:
+    """
+    渲染计划审阅面板（品红色边框）。
+
+    展示 Goal 和所有步骤的标题 + 描述，
+    供用户审阅后选择 Accept / Modify / Cancel。
+    """
+    lines = [f"[bold]Goal:[/bold] {plan.goal}\n"]
+    lines.append("[bold]Proposed Steps:[/bold]")
+    for step in plan.steps:
+        lines.append(f"  [cyan]{step.index}.[/cyan] [bold]{step.title}[/bold]")
+        lines.append(f"     [dim]{step.description}[/dim]")
+    content = "\n".join(lines)
+    console.print(Panel(content, title="Plan Mode", border_style="magenta"))
+
+
+def render_plan_progress(plan: "Plan", console) -> None:
+    """
+    渲染执行进度面板。
+
+    展示每个步骤的当前状态，用图标和颜色区分：
+      ○ Pending（暗色）
+      ● In Progress（黄色）
+      ✓ Done（绿色）
+      ✗ Failed（红色）
+      — Skipped（暗色）
+    """
+    lines = []
+    for step in plan.steps:
+        icon, color, label = _STATUS_ICONS[step.status]
+        lines.append(
+            f"  [{color}]{icon}[/{color}]  "
+            f"Step {step.index}: {step.title}  "
+            f"[{color}]{label}[/{color}]"
+        )
+    content = "\n".join(lines)
+    console.print(Panel(content, title="Plan Progress", border_style="cyan"))
+
+
+def render_plan_summary(plan: "Plan", console) -> None:
+    """
+    渲染完成摘要面板。
+
+    边框颜色：无失败为绿色，有失败为黄色。
+    """
+    done_count = sum(1 for s in plan.steps if s.status == StepStatus.DONE)
+    failed_count = sum(1 for s in plan.steps if s.status == StepStatus.FAILED)
+    skipped_count = sum(1 for s in plan.steps if s.status == StepStatus.SKIPPED)
+    total = len(plan.steps)
+
+    parts = [f"{done_count} completed", f"{failed_count} failed"]
+    if skipped_count > 0:
+        parts.append(f"{skipped_count} skipped")
+    content = ", ".join(parts) + f" (of {total} total)"
+
+    border_color = "yellow" if failed_count > 0 else "green"
+    console.print(Panel(content, title="Plan Complete", border_style=border_color))
