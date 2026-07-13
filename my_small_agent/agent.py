@@ -417,6 +417,37 @@ class Agent:
             if msg.get("role") == "assistant" and "reasoning_content" in msg:
                 del msg["reasoning_content"]
 
+    async def evaluate_step_success(self, step: Any, response: "AgentResponse") -> bool:
+        """
+        让 LLM 自评步骤是否成功执行。
+
+        构造简短评估提示，包含步骤描述和 Agent 执行结果，
+        让 LLM 判断是否完成了步骤目标。
+
+        参数：
+          step:     PlanStep 对象，包含标题和描述
+          response: AgentResponse 对象，包含执行结果
+
+        返回：
+          True 表示成功，False 表示失败
+        """
+        eval_prompt = (
+            f"请评估以下步骤是否已成功完成：\n\n"
+            f"步骤目标：{step.title}\n"
+            f"步骤描述：{step.description}\n\n"
+            f"执行结果：\n{response.content[:2000]}\n\n"
+            f"请只回答 'SUCCESS' 或 'FAILURE'，"
+            f"如果有任何未完成的部分则回答 FAILURE。"
+        )
+
+        result = await self.llm.chat(
+            messages=[{"role": "user", "content": eval_prompt}],
+            tools=None,
+            thinking_enabled=False,
+        )
+        verdict = result.choices[0].message.content.strip().upper()
+        return "SUCCESS" in verdict
+
     def reset_session(
         self,
         messages: list[dict] | None = None,
