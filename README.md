@@ -28,6 +28,8 @@
 - **技能系统** — 自动发现 `skills/` 下的 SKILL.md，支持 LLM 自动激活和用户手动激活（`/skill <name>`），技能指令通过 tool result 注入对话
 - **组合工具** — `research_topic` 链式编排 `web_search` + `fetch_url`，通过 `ToolRegistry.dispatch()` 实现工具间内部调用
 - **安全分级** — 只读工具自动执行，写入/删除类工具需用户确认
+- **工具分类** — 每个工具声明 `category`（`read_only` / `write`），Plan 模式下仅暴露 `read_only` 工具并在执行层拒绝 `write` 调用
+- **Plan 模式** — `/plan` 切换只读探索模式，三层同步：UI 提示符变色（You> 绿色 / Plan> 品红色）、Agent 工具过滤 + 提示词注入、执行层安全网拒绝写操作
 - **Token 估算** — chars/4 算法实时估算上下文消耗，`/status` 展示用量进度
 - **上下文压缩** — 接近上限时自动触发 LLM 摘要压缩，也可 `/compact` 手动触发
 - **长期记忆** — `memory_save` 持久化用户偏好，`session_search` 搜索历史会话
@@ -96,7 +98,8 @@ uv run python -m my_small_agent
 | `/stream` | 切换流式输出开关 |
 | `/think` | 切换思维链模式开关 |
 | `/detail` | 切换思维链详情展示（默认折叠，输入一次展开） |
-| `/status` | 显示当前设置（模型、流式、思维链、Token 用量） |
+| `/plan` | 切换 Plan 模式（只读探索 + 规划，禁用写工具） |
+| `/status` | 显示当前设置（模型、流式、思维链、模式、Token 用量） |
 | `/sessions` | 列出所有历史会话 |
 | `/resume` | 恢复指定会话（`/resume <id_prefix>`） |
 | `/new` | 新建会话 |
@@ -112,16 +115,16 @@ uv run python -m my_small_agent
 my_small_agent/
 ├── __main__.py            # 入口（组装所有组件并启动）
 ├── config.py              # 配置管理（pydantic-settings）
-├── agent.py               # 对话循环核心（流式 + Token估算 + 上下文压缩）
+├── agent.py               # 对话循环核心（流式 + Token估算 + 上下文压缩 + Plan 模式）
 ├── llm.py                 # OpenAI 异步客户端（chat + chat_stream）
 ├── cli.py                 # CLI 交互层（斜杠命令 + 自动压缩触发）
-├── prompt.py              # 提示词管理（加载 system_prompt.md + 拼接技能索引）
+├── prompt.py              # 提示词管理（system_prompt + 技能索引 + Plan 模式提示词）
 ├── system_prompt.md       # 基础系统提示词
 ├── memory.py              # 长期记忆管理（memory.json）
 ├── session.py             # 会话持久化（保存/恢复/搜索）
 ├── tools/
 │   ├── __init__.py            # 工具注册表（ToolRegistry + create_default_registry）
-│   ├── base.py                # 工具抽象基类
+│   ├── base.py                # 工具抽象基类（danger_level + category 双维度）
 │   ├── file_read.py           # 读取文件
 │   ├── file_write.py          # 写入文件
 │   ├── list_dir.py            # 列出目录

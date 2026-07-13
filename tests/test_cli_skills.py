@@ -26,6 +26,7 @@ def mock_cli():
     agent = MagicMock(spec=Agent)
     agent.streaming_enabled = True
     agent.thinking_enabled = True
+    agent.plan_mode = False
     agent.session_id = "test-session-id"
     agent.session_title = "Test"
     agent.messages = [{"role": "system", "content": "prompt"}]

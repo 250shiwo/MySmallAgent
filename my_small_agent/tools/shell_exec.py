@@ -34,6 +34,7 @@ class ExecuteShellTool(Tool):
 
     # 安全级别：dangerous（可执行任意系统命令，必须先询问用户）
     danger_level = "dangerous"
+    category = "write"
 
     async def execute(self, **kwargs) -> str:
         """

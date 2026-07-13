@@ -17,6 +17,7 @@ class MockTool(Tool):
         "required": ["input"],
     }
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         return f"mock result: {kwargs.get('input', '')}"

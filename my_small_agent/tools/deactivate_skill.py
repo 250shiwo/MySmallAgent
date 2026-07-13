@@ -17,6 +17,7 @@ class DeactivateSkillTool(Tool):
         "required": [],
     }
     danger_level = "safe"
+    category = "write"       # 修改技能状态，Plan 模式下禁用
 
     def __init__(self, skill_registry: SkillRegistry) -> None:
         self._skill_registry = skill_registry

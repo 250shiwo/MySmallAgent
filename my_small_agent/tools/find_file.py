@@ -39,6 +39,7 @@ class FindFileTool(Tool):
     }
 
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         pattern = kwargs["pattern"]

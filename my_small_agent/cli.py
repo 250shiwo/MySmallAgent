@@ -16,6 +16,7 @@ CLI 交互层 - 处理终端的用户输入输出和斜杠命令。
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
@@ -57,7 +58,12 @@ class CLI:
             try:
                 # patch_stdout: 防止 rich 输出和 prompt 输入互相干扰
                 with patch_stdout():
-                    user_input = await self.session.prompt_async("You> ")
+                    # 根据模式选择提示符：Normal=You>(绿色)，Plan=Plan>(品红色)
+                    if self.agent.plan_mode:
+                        prompt_text = HTML('<ansimagenta>Plan> </ansimagenta>')
+                    else:
+                        prompt_text = HTML('<ansigreen>You> </ansigreen>')
+                    user_input = await self.session.prompt_async(prompt_text)
 
                 user_input = user_input.strip()
                 if not user_input:
@@ -235,6 +241,7 @@ class CLI:
           /stream   → 切换流式输出
           /think    → 切换思维链模式
           /detail   → 切换思维链详情展示（默认折叠）
+          /plan     → 切换 Plan 模式（只读探索 + 规划）
           /status   → 显示当前设置
           /sessions → 列出所有历史会话
           /resume   → 恢复指定会话
@@ -262,6 +269,8 @@ class CLI:
             self._toggle_think()
         elif cmd == "/detail":
             self._toggle_detail()
+        elif cmd == "/plan":
+            self._toggle_plan()
         elif cmd == "/status":
             self._print_status()
         elif cmd == "/sessions":
@@ -303,11 +312,26 @@ class CLI:
         state = "展开" if self._detail_enabled else "折叠"
         self.console.print(f"[cyan]思维链详情已{state}[/cyan]")
 
+    def _toggle_plan(self) -> None:
+        """切换 Plan 模式开关，同步三层状态：提示符样式、工具过滤、提示词注入。"""
+        result = self.agent.toggle_plan_mode()
+        if result == "plan_on":
+            self.console.print(
+                "[magenta]Plan 模式已开启[/magenta]  "
+                "[dim]只读探索 + 规划，危险工具已禁用[/dim]"
+            )
+        else:
+            self.console.print(
+                "[green]Normal 模式已恢复[/green]  "
+                "[dim]所有工具可用[/dim]"
+            )
+
     def _print_status(self) -> None:
         """显示当前 Agent 状态。"""
         streaming = "[green]开启[/green]" if self.agent.streaming_enabled else "[red]关闭[/red]"
         thinking = "[green]开启[/green]" if self.agent.thinking_enabled else "[red]关闭[/red]"
         detail = "[green]展开[/green]" if self._detail_enabled else "[dim]折叠[/dim]"
+        plan = "[magenta]Plan[/magenta]" if self.agent.plan_mode else "[green]Normal[/green]"
         tokens = self.agent.estimate_tokens()
         max_tokens = self.agent.settings.max_context_tokens
         pct = int(tokens / max_tokens * 100) if max_tokens > 0 else 0
@@ -326,6 +350,7 @@ class CLI:
                 f"  流式输出:   {streaming}\n"
                 f"  思维链:     {thinking}\n"
                 f"  详情展示:   {detail}\n"
+                f"  模式:       {plan}\n"
                 f"{token_line}\n"
                 f"  当前技能:   {skill_display}\n"
                 f"  当前会话:   [dim]{self.agent.session_id[:8]}[/dim]  "
@@ -349,6 +374,7 @@ class CLI:
                 "  /stream - Toggle streaming output\n"
                 "  /think  - Toggle thinking mode\n"
                 "  /detail - Toggle thinking detail view\n"
+                "  /plan   - Toggle plan mode (read-only exploration)\n"
                 "  /status   - Show current settings\n"
                 "  /sessions - List conversation history\n"
                 "  /resume   - Resume a past session\n"
@@ -375,6 +401,7 @@ class CLI:
                 "  [cyan]/stream[/cyan] - Toggle streaming output\n"
                 "  [cyan]/think[/cyan]  - Toggle thinking mode\n"
                 "  [cyan]/detail[/cyan] - Toggle thinking detail view\n"
+                "  [cyan]/plan[/cyan]   - Toggle plan mode (read-only exploration)\n"
                 "  [cyan]/status[/cyan]   - Show current settings\n"
                 "  [cyan]/sessions[/cyan] - List all saved conversations\n"
                 "  [cyan]/resume[/cyan]   - Resume a past session: /resume <id_prefix>\n"

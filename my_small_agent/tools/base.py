@@ -21,6 +21,8 @@ class Tool(ABC):
       description:   给 LLM 看的工具描述，帮助模型理解何时使用
       parameters:    JSON Schema 格式的参数定义（OpenAI 要求此格式）
       danger_level:  安全级别，"safe" 或 "dangerous"
+      category:      操作分类，"read_only" 或 "write"
+                     Plan 模式下仅暴露 read_only 工具，并在执行层拒绝 write 工具
 
     子类必须实现：
       execute(**kwargs) → str  执行工具逻辑，返回字符串结果
@@ -30,6 +32,7 @@ class Tool(ABC):
     description: str    # 工具描述，展示给 LLM
     parameters: dict    # JSON Schema 参数定义
     danger_level: str   # "safe"（安全，自动执行）| "dangerous"（危险，需确认）
+    category: str       # "read_only"（只读）| "write"（写入，Plan 模式下禁用）
 
     @abstractmethod
     async def execute(self, **kwargs) -> str:

@@ -38,6 +38,7 @@ class SessionSearchTool(Tool):
         "required": ["query"],
     }
     danger_level = "safe"
+    category = "read_only"
 
     def __init__(self, sessions_dir: Path) -> None:
         self._sessions_dir = sessions_dir

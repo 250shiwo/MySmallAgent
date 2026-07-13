@@ -14,6 +14,7 @@ class MockSearchTool(Tool):
     description = "Mock search"
     parameters = {"type": "object", "properties": {}, "required": []}
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         return json.dumps({
@@ -30,6 +31,7 @@ class MockFetchTool(Tool):
     description = "Mock fetch"
     parameters = {"type": "object", "properties": {}, "required": []}
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         url = kwargs.get("url", "")

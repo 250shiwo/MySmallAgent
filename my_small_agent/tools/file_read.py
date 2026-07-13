@@ -28,6 +28,7 @@ class ReadFileTool(Tool):
 
     # 安全级别：safe 表示只读操作，无需用户确认即可自动执行
     danger_level = "safe"
+    category = "read_only"    # 只读工具，Plan 模式下可用
 
     async def execute(self, **kwargs) -> str:
         """读取文件内容并返回。出错时返回友好的错误信息而不是抛异常。"""

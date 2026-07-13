@@ -34,6 +34,7 @@ class WriteFileTool(Tool):
 
     # 安全级别：dangerous 表示写入操作，Agent 执行前会弹出确认框
     danger_level = "dangerous"
+    category = "write"      # 写入工具，Plan 模式下禁用
 
     async def execute(self, **kwargs) -> str:
         """将内容写入文件。自动创建不存在的目录。"""

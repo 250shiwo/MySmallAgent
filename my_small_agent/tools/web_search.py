@@ -40,6 +40,7 @@ class WebSearchTool(Tool):
 
     # 安全级别：safe（只读搜索，自动执行）
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         """

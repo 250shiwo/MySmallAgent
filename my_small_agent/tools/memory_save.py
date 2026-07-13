@@ -32,6 +32,7 @@ class MemorySaveTool(Tool):
         "required": ["content"],
     }
     danger_level = "safe"
+    category = "write"       # 写入长期记忆，Plan 模式下禁用
 
     def __init__(self, memory_manager: MemoryManager) -> None:
         self._memory_manager = memory_manager

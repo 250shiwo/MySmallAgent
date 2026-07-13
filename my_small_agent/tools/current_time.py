@@ -28,6 +28,7 @@ class CurrentTimeTool(Tool):
 
     # 安全级别：safe（只读，自动执行）
     danger_level = "safe"
+    category = "read_only"
 
     def __init__(self, timezone: str = "Asia/Shanghai") -> None:
         """初始化时接收时区字符串（如 'Asia/Shanghai'）。"""

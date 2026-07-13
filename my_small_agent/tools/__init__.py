@@ -69,9 +69,12 @@ class ToolRegistry:
         except Exception as e:
             return json.dumps({"error": f"Tool '{name}' execution failed: {e}"})
 
-    def get_openai_tools(self) -> list[dict]:
+    def get_openai_tools(self, readonly_only: bool = False) -> list[dict]:
         """
-        将所有已注册工具转换为 OpenAI API 的 tools 参数格式。
+        将已注册工具转换为 OpenAI API 的 tools 参数格式。
+
+        参数：
+          readonly_only: 为 True 时仅返回 category="read_only" 的工具（用于 Plan 模式）
 
         输出示例：
         [
@@ -85,6 +88,9 @@ class ToolRegistry:
           }
         ]
         """
+        tools = self._tools.values()
+        if readonly_only:
+            tools = [t for t in tools if t.category == "read_only"]
         return [
             {
                 "type": "function",
@@ -94,7 +100,7 @@ class ToolRegistry:
                     "parameters": tool.parameters,
                 },
             }
-            for tool in self._tools.values()
+            for tool in tools
         ]
 
     def list_all(self) -> list[Tool]:

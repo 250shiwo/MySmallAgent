@@ -32,6 +32,7 @@ class ResearchTopicTool(Tool):
         "required": ["query"],
     }
     danger_level = "safe"
+    category = "read_only"
 
     def __init__(self, registry) -> None:
         """接收 ToolRegistry 引用，用于调用其他工具。"""

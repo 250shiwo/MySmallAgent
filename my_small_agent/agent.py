@@ -20,6 +20,7 @@ from typing import Any, AsyncGenerator, Callable, Coroutine
 from my_small_agent.config import Settings
 from my_small_agent.llm import LLMClient
 from my_small_agent.memory import MemoryManager
+from my_small_agent.prompt import PLAN_MODE_MARKER
 from my_small_agent.tools import ToolRegistry
 
 # 确认回调函数的类型签名：
@@ -60,6 +61,10 @@ class Agent:
         # 运行时状态（可通过 CLI 命令动态切换）
         self.streaming_enabled: bool = getattr(settings, 'enable_streaming', True)
         self.thinking_enabled: bool = getattr(settings, 'enable_thinking', True)
+        self.plan_mode: bool = False    # Plan 模式：只读探索 + 规划
+
+        # 保存 PromptManager 引用（用于获取 plan prompt）
+        self._prompt_manager: "PromptManager | None" = prompt_manager
 
         # 初始化对话历史，第一条始终是 system prompt
         # 如果提供了 PromptManager，使用它；否则从默认文件加载
@@ -143,6 +148,33 @@ class Agent:
             return "No skill registry."
         return self._skill_registry.deactivate()
 
+    def toggle_plan_mode(self) -> str:
+        """
+        切换 Plan 模式开关。
+
+        开启时：注入 Plan 模式系统提示词（作为 system 消息追加到历史末尾）。
+        关闭时：移除 Plan 模式系统提示词。
+        返回状态描述字符串供 CLI 展示。
+        """
+        self.plan_mode = not self.plan_mode
+
+        if self.plan_mode:
+            # 注入 Plan 模式提示词
+            plan_prompt = (
+                self._prompt_manager.get_plan_prompt()
+                if self._prompt_manager is not None
+                else f"{PLAN_MODE_MARKER}\n\nPlan mode active."
+            )
+            self.messages.append({"role": "system", "content": plan_prompt})
+            return "plan_on"
+        else:
+            # 移除 Plan 模式提示词（按标记定位）
+            self.messages = [
+                m for m in self.messages
+                if not (m.get("role") == "system" and PLAN_MODE_MARKER in m.get("content", ""))
+            ]
+            return "plan_off"
+
     async def run_turn(
         self,
         user_input: str,
@@ -161,8 +193,8 @@ class Agent:
         # 将用户消息追加到历史
         self.messages.append({"role": "user", "content": user_input})
 
-        # 获取所有工具定义（OpenAI 格式）
-        tools = self.registry.get_openai_tools()
+        # 获取工具定义：Plan 模式下仅暴露只读工具
+        tools = self.registry.get_openai_tools(readonly_only=self.plan_mode)
         iteration = 0
 
         # 核心循环：不断调用 LLM 直到得到文本回复或达到上限
@@ -206,6 +238,12 @@ class Agent:
                 tool = self.registry.get(tool_name)
                 if tool is None:
                     result = f"Error: Unknown tool '{tool_name}'"
+                elif self.plan_mode and tool.category == "write":
+                    # Plan 模式安全网：拒绝写工具调用（即使 LLM 幻觉调用了写工具）
+                    result = (
+                        f"Error: Tool '{tool_name}' is not available in Plan mode "
+                        f"(write operations are disabled)."
+                    )
                 else:
                     # 根据安全级别决定是否确认
                     if tool.danger_level == "dangerous":
@@ -252,7 +290,7 @@ class Agent:
         然后开始下一轮 stream。
         """
         self.messages.append({"role": "user", "content": user_input})
-        tools = self.registry.get_openai_tools()
+        tools = self.registry.get_openai_tools(readonly_only=self.plan_mode)
         iteration = 0
 
         while iteration < self.max_iterations:
@@ -335,6 +373,12 @@ class Agent:
                 tool = self.registry.get(tool_name)
                 if tool is None:
                     result = f"Error: Unknown tool '{tool_name}'"
+                elif self.plan_mode and tool.category == "write":
+                    # Plan 模式安全网：拒绝写工具调用（即使 LLM 幻觉调用了写工具）
+                    result = (
+                        f"Error: Tool '{tool_name}' is not available in Plan mode "
+                        f"(write operations are disabled)."
+                    )
                 else:
                     if tool.danger_level == "dangerous":
                         confirmed = await confirm_callback(

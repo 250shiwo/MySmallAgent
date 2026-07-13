@@ -27,6 +27,7 @@ class DeleteFileTool(Tool):
     }
 
     danger_level = "dangerous"
+    category = "write"
 
     async def execute(self, **kwargs) -> str:
         path = Path(kwargs["path"])

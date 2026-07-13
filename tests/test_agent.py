@@ -17,6 +17,7 @@ class MockSafeTool(Tool):
     description = "A safe mock tool"
     parameters = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         return f"safe result: {kwargs['x']}"
@@ -27,6 +28,7 @@ class MockDangerousTool(Tool):
     description = "A dangerous mock tool"
     parameters = {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}
     danger_level = "dangerous"
+    category = "write"
 
     async def execute(self, **kwargs) -> str:
         return f"executed: {kwargs['cmd']}"

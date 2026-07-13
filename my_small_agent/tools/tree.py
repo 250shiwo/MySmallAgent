@@ -38,6 +38,7 @@ class TreeTool(Tool):
     }
 
     danger_level = "safe"
+    category = "read_only"
 
     async def execute(self, **kwargs) -> str:
         path = kwargs.get("path", ".")
