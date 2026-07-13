@@ -163,8 +163,17 @@ class TestPromptManagerPlanPrompt:
         pm = PromptManager()
         prompt = pm.get_plan_prompt()
         assert "计划模式" in prompt
-        assert "只读探索" in prompt
-        assert "结构化计划" in prompt
+        assert "探索与信息收集" in prompt
+        assert "生成计划" in prompt
+
+    def test_plan_prompt_contains_format_specification(self):
+        """plan prompt 应包含输出格式规范。"""
+        pm = PromptManager()
+        prompt = pm.get_plan_prompt()
+        assert "## Plan" in prompt
+        assert "**Goal**" in prompt
+        assert "### Steps" in prompt
+        assert "<标题>" in prompt
 
 
 # ---- Agent: plan_mode 切换 ----
