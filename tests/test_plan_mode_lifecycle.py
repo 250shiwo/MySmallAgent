@@ -347,3 +347,159 @@ class TestReviewPlan:
             assert cli.session.prompt_async.call_count == 3
             # 验证最终执行了
             cli._execute_plan.assert_called_once()
+
+
+class TestExecutePlan:
+    """_execute_plan 方法测试。"""
+
+    @pytest.mark.asyncio
+    async def test_execute_all_steps_success(self, cli_instance):
+        """所有步骤成功执行时状态应为 DONE。"""
+        cli = cli_instance
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(index=1, title="Step A", description="Do A"),
+                PlanStep(index=2, title="Step B", description="Do B"),
+            ],
+            phase=PlanPhase.EXECUTING,
+        )
+
+        # mock Agent.run_turn 返回成功响应
+        cli.agent.run_turn = AsyncMock(
+            return_value=_make_agent_response("步骤执行完成。")
+        )
+        # mock evaluate_step_success 返回 True
+        cli.agent.evaluate_step_success = AsyncMock(return_value=True)
+        # mock Agent.toggle_plan_mode
+        cli.agent.toggle_plan_mode = MagicMock(return_value="plan_off")
+        cli.agent.plan_mode = True
+
+        await cli._execute_plan(plan)
+
+        assert plan.phase == PlanPhase.COMPLETED
+        assert plan.steps[0].status == StepStatus.DONE
+        assert plan.steps[1].status == StepStatus.DONE
+
+    @pytest.mark.asyncio
+    async def test_execute_step_failure_continue(self, cli_instance):
+        """步骤失败且用户选择 Continue 时应跳过继续。"""
+        cli = cli_instance
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(index=1, title="Step A", description="Do A"),
+                PlanStep(index=2, title="Step B", description="Do B"),
+                PlanStep(index=3, title="Step C", description="Do C"),
+            ],
+            phase=PlanPhase.EXECUTING,
+        )
+
+        # 第一步失败，后续成功
+        cli.agent.run_turn = AsyncMock(
+            return_value=_make_agent_response("执行结果。")
+        )
+        cli.agent.evaluate_step_success = AsyncMock(
+            side_effect=[False, True, True]
+        )
+        cli.agent.toggle_plan_mode = MagicMock(return_value="plan_off")
+        cli.agent.plan_mode = True
+
+        # mock questionary 选择 Continue
+        with patch("my_small_agent.cli.questionary") as mock_q:
+            mock_q.select.return_value.ask_async = AsyncMock(return_value="Continue")
+
+            await cli._execute_plan(plan)
+
+        assert plan.steps[0].status == StepStatus.FAILED
+        assert plan.steps[1].status == StepStatus.DONE
+        assert plan.steps[2].status == StepStatus.DONE
+        assert plan.phase == PlanPhase.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_execute_step_failure_stop(self, cli_instance):
+        """步骤失败且用户选择 Stop 时剩余步骤标记 SKIPPED。"""
+        cli = cli_instance
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(index=1, title="Step A", description="Do A"),
+                PlanStep(index=2, title="Step B", description="Do B"),
+                PlanStep(index=3, title="Step C", description="Do C"),
+            ],
+            phase=PlanPhase.EXECUTING,
+        )
+
+        cli.agent.run_turn = AsyncMock(
+            return_value=_make_agent_response("执行结果。")
+        )
+        # 第一步失败
+        cli.agent.evaluate_step_success = AsyncMock(return_value=False)
+        cli.agent.toggle_plan_mode = MagicMock(return_value="plan_off")
+        cli.agent.plan_mode = True
+
+        with patch("my_small_agent.cli.questionary") as mock_q:
+            mock_q.select.return_value.ask_async = AsyncMock(return_value="Stop")
+
+            await cli._execute_plan(plan)
+
+        assert plan.steps[0].status == StepStatus.FAILED
+        assert plan.steps[1].status == StepStatus.SKIPPED
+        assert plan.steps[2].status == StepStatus.SKIPPED
+        assert plan.phase == PlanPhase.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_execute_exits_plan_mode_first(self, cli_instance):
+        """执行计划前应先退出 Plan 模式。"""
+        cli = cli_instance
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(index=1, title="A", description="d"),
+                PlanStep(index=2, title="B", description="d"),
+            ],
+            phase=PlanPhase.EXECUTING,
+        )
+
+        cli.agent.run_turn = AsyncMock(
+            return_value=_make_agent_response("Done.")
+        )
+        cli.agent.evaluate_step_success = AsyncMock(return_value=True)
+        cli.agent.toggle_plan_mode = MagicMock(
+            side_effect=lambda: setattr(cli.agent, 'plan_mode', False) or "plan_off"
+        )
+        cli.agent.plan_mode = True
+
+        await cli._execute_plan(plan)
+
+        # 验证 toggle_plan_mode 被调用（退出 Plan 模式）
+        cli.agent.toggle_plan_mode.assert_called_once()
+        assert cli.agent.plan_mode is False
+
+    @pytest.mark.asyncio
+    async def test_execute_step_prompt_contains_title_and_description(self, cli_instance):
+        """步骤提示词应包含步骤标题和描述。"""
+        cli = cli_instance
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(index=1, title="分析代码", description="读取 auth/ 目录"),
+                PlanStep(index=2, title="修改代码", description="创建 handler.py"),
+            ],
+            phase=PlanPhase.EXECUTING,
+        )
+
+        cli.agent.run_turn = AsyncMock(
+            return_value=_make_agent_response("Done.")
+        )
+        cli.agent.evaluate_step_success = AsyncMock(return_value=True)
+        cli.agent.toggle_plan_mode = MagicMock(return_value="plan_off")
+        cli.agent.plan_mode = True
+
+        await cli._execute_plan(plan)
+
+        # 验证第一次 run_turn 调用的 user_input 包含标题和描述
+        first_call_args = cli.agent.run_turn.call_args_list[0]
+        user_input = first_call_args.args[0] if first_call_args.args else first_call_args.kwargs.get("user_input", "")
+        assert "分析代码" in user_input
+        assert "读取 auth/ 目录" in user_input

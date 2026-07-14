@@ -308,6 +308,84 @@ class CLI:
                 self.console.print("[dim]计划已取消。[/dim]")
                 return
 
+    async def _execute_plan(self, plan: Plan) -> None:
+        """
+        执行计划：逐步执行每个步骤，实时展示进度。
+
+        流程：
+          1. 退出 Plan 模式（恢复全部工具）
+          2. 逐步执行：
+             - 构造步骤提示词
+             - agent.run_turn() 实时展示执行过程
+             - evaluate_step_success() LLM 自评
+             - 更新步骤状态
+             - 失败时用户选择 Continue / Stop
+          3. 展示完成摘要
+        """
+        self._active_plan = plan
+
+        # 1. 退出 Plan 模式
+        if self.agent.plan_mode:
+            self.agent.toggle_plan_mode()
+
+        # 2. 逐步执行
+        for i, step in enumerate(plan.steps):
+            # 跳过已被标记为 SKIPPED 的步骤（前面 Stop 导致的）
+            if step.status == StepStatus.SKIPPED:
+                continue
+
+            step.status = StepStatus.IN_PROGRESS
+            render_plan_progress(plan, self.console)
+
+            # 构造步骤提示词
+            step_prompt = (
+                f"执行计划步骤 {step.index}: {step.title}\n"
+                f"{step.description}"
+            )
+
+            self.console.print(f"\n[cyan]▶ 执行步骤 {step.index}: {step.title}[/cyan]\n")
+
+            # 执行步骤
+            try:
+                response = await self.agent.run_turn(
+                    step_prompt,
+                    confirm_callback=self._confirm_dangerous_action,
+                )
+            except Exception as e:
+                response = AgentResponse(content=f"执行出错：{e}")
+
+            # LLM 自评
+            try:
+                success = await self.agent.evaluate_step_success(step, response)
+            except Exception:
+                success = False  # 评估失败视为步骤失败
+
+            step.status = StepStatus.DONE if success else StepStatus.FAILED
+            render_plan_progress(plan, self.console)
+
+            # 保存会话
+            self._save_session()
+
+            # 失败时询问用户
+            if not success and i < len(plan.steps) - 1:
+                choice = await questionary.select(
+                    f"步骤 {step.index} 失败，如何继续？",
+                    choices=["Continue（跳过继续）", "Stop（跳过所有剩余步骤）"],
+                ).ask_async()
+
+                if choice.startswith("Stop"):
+                    # 标记剩余步骤为 SKIPPED
+                    for remaining in plan.steps[i + 1:]:
+                        remaining.status = StepStatus.SKIPPED
+                    break
+
+        # 3. 展示完成摘要
+        plan.phase = PlanPhase.COMPLETED
+        self.console.print()
+        render_plan_summary(plan, self.console)
+        self.console.print()
+        self._active_plan = None
+
     async def _run_agent_turn_normal(self, user_input: str) -> None:
         """非流式模式：等待完整响应后渲染。"""
         # Status: rich 的加载动画，在等待 LLM 时显示旋转图标
