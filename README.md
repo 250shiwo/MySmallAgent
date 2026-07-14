@@ -29,7 +29,11 @@
 - **组合工具** — `research_topic` 链式编排 `web_search` + `fetch_url`，通过 `ToolRegistry.dispatch()` 实现工具间内部调用
 - **安全分级** — 只读工具自动执行，写入/删除类工具需用户确认
 - **工具分类** — 每个工具声明 `category`（`read_only` / `write`），Plan 模式下仅暴露 `read_only` 工具并在执行层拒绝 `write` 调用
-- **Plan 模式** — `/plan` 切换只读探索模式，三层同步：UI 提示符变色（You> 绿色 / Plan> 品红色）、Agent 工具过滤 + 提示词注入、执行层安全网拒绝写操作
+- **Plan 模式** — `/plan` 切换至只读探索模式，三层同步：UI 提示符变色（You> 绿色 / Plan> 品红色）、Agent 工具过滤 + 提示词注入、执行层安全网拒绝写操作。完整生命周期：
+  - **规划阶段** — Agent 用只读工具探索代码库，生成 `## Plan` 格式的结构化计划
+  - **审阅阶段** — 品红色面板展示计划，方向键选择 Accept / Modify / Cancel（最多 3 轮修改）
+  - **执行阶段** — 退出 Plan 模式，逐步执行每个步骤，实时展示进度面板（○ Pending / ● In Progress / ✓ Done / ✗ Failed / — Skipped），LLM 自评步骤成功/失败，失败时可选 Continue 或 Stop
+  - **完成摘要** — 统计完成/失败/跳过数量，绿色或黄色边框面板展示
 - **Token 估算** — chars/4 算法实时估算上下文消耗，`/status` 展示用量进度
 - **上下文压缩** — 接近上限时自动触发 LLM 摘要压缩，也可 `/compact` 手动触发
 - **长期记忆** — `memory_save` 持久化用户偏好，`session_search` 搜索历史会话
@@ -98,7 +102,7 @@ uv run python -m my_small_agent
 | `/stream` | 切换流式输出开关 |
 | `/think` | 切换思维链模式开关 |
 | `/detail` | 切换思维链详情展示（默认折叠，输入一次展开） |
-| `/plan` | 切换 Plan 模式（只读探索 + 规划，禁用写工具） |
+| `/plan` | 切换 Plan 模式（探索 + 规划 + 审阅 + 执行） |
 | `/status` | 显示当前设置（模型、流式、思维链、模式、Token 用量） |
 | `/sessions` | 列出所有历史会话 |
 | `/resume` | 恢复指定会话（`/resume <id_prefix>`） |
@@ -119,6 +123,7 @@ my_small_agent/
 ├── llm.py                 # OpenAI 异步客户端（chat + chat_stream）
 ├── cli.py                 # CLI 交互层（斜杠命令 + 自动压缩触发）
 ├── prompt.py              # 提示词管理（system_prompt + 技能索引 + Plan 模式提示词）
+├── plan.py               # Plan 数据结构 + 解析器 + 渲染函数（审阅面板/进度面板/摘要）
 ├── system_prompt.md       # 基础系统提示词
 ├── memory.py              # 长期记忆管理（memory.json）
 ├── session.py             # 会话持久化（保存/恢复/搜索）
@@ -170,6 +175,7 @@ uv run pytest -v
 | 配置管理 | `pydantic-settings` |
 | 终端输入 | `prompt_toolkit` |
 | 终端输出 | `rich` |
+| 交互选择 | `questionary`（方向键导航菜单） |
 | 时区 | `zoneinfo` + `tzdata`（Windows） |
 | 依赖管理 | `uv` + `pyproject.toml` |
 
