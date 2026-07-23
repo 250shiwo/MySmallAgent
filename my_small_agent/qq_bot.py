@@ -22,11 +22,47 @@ from my_small_agent.session import SessionManager
 PLACEHOLDER_TEXT = "🤔 思考中..."
 # LLM 返回空文本时的兜底提示
 EMPTY_REPLY_TEXT = "(无文本回复)"
+# 分段发送参数：QQ 单条 C2C 文本上限约 2000 字，预留余量取 1800
+SEGMENT_LEN = 1800
+# 单条事件消息被动回复次数有限（占位 1 次 + 正文最多 3 段 = 4 次）
+MAX_SEGMENTS = 3
+# 超出 MAX_SEGMENTS 时的截断提示
+TRUNCATED_SUFFIX = "\n…(回复过长已截断)"
 
 
 async def _auto_approve(tool_name: str, description: str, arguments: dict) -> bool:
     """危险工具确认回调：QQ 场景仅创建者本人使用，一律自动批准。"""
     return True
+
+
+def _split_segments(content: str) -> list[str]:
+    """
+    将长回复切分为 ≤SEGMENT_LEN 的分段，最多 MAX_SEGMENTS 段。
+
+    切分优先在换行处断开；找不到换行则硬切。
+    超出 MAX_SEGMENTS 的内容截断，末段附加截断提示。
+    空内容返回固定兜底提示。
+    """
+    if not content:
+        return [EMPTY_REPLY_TEXT]
+    segments: list[str] = []
+    remaining = content
+    truncated = False
+    while remaining:
+        if len(segments) >= MAX_SEGMENTS:
+            truncated = True
+            break
+        if len(remaining) <= SEGMENT_LEN:
+            segments.append(remaining)
+            break
+        cut = remaining.rfind("\n", 0, SEGMENT_LEN)
+        if cut <= 0:
+            cut = SEGMENT_LEN
+        segments.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip("\n")
+    if truncated:
+        segments[-1] = segments[-1][: SEGMENT_LEN - len(TRUNCATED_SUFFIX)] + TRUNCATED_SUFFIX
+    return segments
 
 
 class QQBotClient(botpy.Client):
@@ -113,8 +149,8 @@ class QQBotClient(botpy.Client):
             logger.error(f"回复发送失败：{e}")
 
     async def _reply(self, message, openid: str, content: str) -> None:
-        """发送回复，始终携带原消息 msg_id（被动回复）。"""
-        await self.api.post_c2c_message(
-            openid=openid, msg_type=0, msg_id=message.id,
-            content=content or EMPTY_REPLY_TEXT,
-        )
+        """分段发送回复，每段均携带原消息 msg_id（被动回复）。"""
+        for segment in _split_segments(content):
+            await self.api.post_c2c_message(
+                openid=openid, msg_type=0, msg_id=message.id, content=segment
+            )

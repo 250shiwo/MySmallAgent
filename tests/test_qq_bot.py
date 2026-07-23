@@ -11,6 +11,11 @@ from my_small_agent.qq_bot import (
     QQBotClient,
     _auto_approve,
 )
+from my_small_agent.qq_bot import (
+    MAX_SEGMENTS,
+    SEGMENT_LEN,
+    _split_segments,
+)
 from my_small_agent.session import SessionManager
 
 
@@ -128,3 +133,51 @@ async def test_messages_processed_serially():
         client.on_c2c_message_create(make_message(content="第二条", msg_id="m2")),
     )
     assert order == ["start:第一条", "end:第一条", "start:第二条", "end:第二条"]
+
+
+def test_split_short_content_single_segment():
+    """短内容不分段。"""
+    assert _split_segments("短回复") == ["短回复"]
+
+
+def test_split_empty_content():
+    """空内容返回固定兜底提示。"""
+    assert _split_segments("") == ["(无文本回复)"]
+
+
+def test_split_long_content_prefers_newline():
+    """长内容优先在换行处断开。"""
+    content = "a" * 1000 + "\n" + "b" * 2000
+    segments = _split_segments(content)
+    assert segments[0] == "a" * 1000
+    assert segments[1].startswith("b")
+
+
+def test_split_hard_cut_without_newline():
+    """无换行时在 SEGMENT_LEN 处硬切。"""
+    content = "a" * (SEGMENT_LEN + 100)
+    segments = _split_segments(content)
+    assert len(segments[0]) == SEGMENT_LEN
+    assert segments[1] == "a" * 100
+
+
+def test_split_truncates_beyond_max_segments():
+    """超出 MAX_SEGMENTS 的内容截断并附提示，末段不超长。"""
+    content = "a" * (SEGMENT_LEN * MAX_SEGMENTS + 500)
+    segments = _split_segments(content)
+    assert len(segments) == MAX_SEGMENTS
+    assert segments[-1].endswith("…(回复过长已截断)")
+    assert len(segments[-1]) <= SEGMENT_LEN
+
+
+async def test_long_reply_sent_in_segments_with_msg_id():
+    """集成：长回复分段发送，每段均携带原 msg_id。"""
+    client, agent, _ = make_client()
+    agent.run_turn = AsyncMock(return_value=AgentResponse(content="a" * 4000))
+    await client.on_c2c_message_create(make_message())
+    calls = client.api.post_c2c_message.await_args_list
+    assert calls[0].kwargs["content"] == PLACEHOLDER_TEXT
+    body = [c.kwargs["content"] for c in calls[1:]]
+    assert len(body) == 3  # 4000 字 → 1800 + 1800 + 400
+    assert all(len(s) <= SEGMENT_LEN for s in body)
+    assert all(c.kwargs["msg_id"] == "msg-1" for c in calls)
