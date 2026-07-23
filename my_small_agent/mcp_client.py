@@ -47,6 +47,10 @@ def load_mcp_config(path: str = "mcp.json") -> dict[str, MCPServerConfig]:
         logger.warning(f"mcp.json 解析失败，忽略 MCP 配置：{e}")
         return {}
 
+    if not isinstance(data, dict):
+        logger.warning("mcp.json 结构非法，忽略 MCP 配置")
+        return {}
+
     servers_raw = data.get("mcpServers")
     if not isinstance(servers_raw, dict):
         logger.warning("mcp.json 缺少 mcpServers 对象，忽略 MCP 配置")

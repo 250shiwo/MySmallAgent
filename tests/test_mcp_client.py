@@ -53,3 +53,9 @@ def test_load_config_missing_mcpservers_key_returns_empty(tmp_path):
     cfg_file = tmp_path / "mcp.json"
     cfg_file.write_text(json.dumps({"other": {}}), encoding="utf-8")
     assert load_mcp_config(str(cfg_file)) == {}
+
+
+def test_load_config_non_dict_root_returns_empty(tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text("[1, 2, 3]", encoding="utf-8")
+    assert load_mcp_config(str(cfg_file)) == {}
