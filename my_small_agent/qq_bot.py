@@ -10,6 +10,8 @@ QQ 机器人前端 - 通过 QQ 开放平台官方 API 接入私聊对话。
 """
 
 import asyncio
+import sys
+from pathlib import Path
 
 import botpy
 from botpy import logger
@@ -63,6 +65,38 @@ def _split_segments(content: str) -> list[str]:
     if truncated:
         segments[-1] = segments[-1][: SEGMENT_LEN - len(TRUNCATED_SUFFIX)] + TRUNCATED_SUFFIX
     return segments
+
+
+def validate_qq_settings(settings: Settings) -> str | None:
+    """校验 QQ 配置完整性。返回错误描述；配置完整返回 None。"""
+    if not settings.qq_appid:
+        return "缺少 QQ_APPID 配置"
+    if not settings.qq_appsecret:
+        return "缺少 QQ_APPSECRET 配置"
+    return None
+
+
+def _restore_latest_session(agent: Agent, session_manager: SessionManager) -> str | None:
+    """
+    恢复最近一次会话（机器人重启后对话不断片）。
+
+    成功返回会话标题；无历史或恢复失败返回 None（以新会话启动）。
+    """
+    sessions = session_manager.list_sessions()
+    if not sessions:
+        return None
+    latest = sessions[0]
+    try:
+        agent.reset_session(
+            messages=latest.messages,
+            session_id=latest.session_id,
+            title=latest.title,
+            created_at=latest.created_at,
+        )
+    except Exception as e:
+        logger.warning(f"会话恢复失败，以新会话启动：{e}")
+        return None
+    return latest.title
 
 
 class QQBotClient(botpy.Client):
@@ -198,3 +232,83 @@ class QQBotClient(botpy.Client):
                 return False
             return True
         return False
+
+
+def main() -> None:
+    """
+    主函数 - 初始化所有组件并启动 QQ 机器人。
+
+    组装链与 __main__.py 一致（QQBotClient 替代 CLI）：
+      Settings → LLMClient → MemoryManager → ToolRegistry → Agent → QQBotClient
+    全程同步：client.run() 内部自行创建事件循环（asyncio.run）。
+    """
+    try:
+        from my_small_agent.llm import LLMClient
+        from my_small_agent.tools import create_default_registry
+        from my_small_agent.memory import MemoryManager
+        from my_small_agent.skills import (
+            discover_skills,
+            skill_registry,
+            build_skills_index,
+            register_skill_tools,
+        )
+        from my_small_agent.prompt import PromptManager
+        from my_small_agent.tools.research_topic import ResearchTopicTool
+
+        # 1. 加载配置并校验 QQ 凭证（缺失时打印指引并退出，不抛堆栈）
+        settings = Settings()
+        if error := validate_qq_settings(settings):
+            print(f"错误：{error}")
+            print(
+                "请先在 https://q.qq.com/qqbot/openclaw/ 创建机器人，"
+                "并将 AppID/AppSecret 填入 .env（参考 .env.example）"
+            )
+            sys.exit(1)
+
+        # 2. 组装组件（与 __main__.py 相同）
+        llm_client = LLMClient(settings)
+        memory_manager = MemoryManager(Path(".genesis") / "memory")
+        registry = create_default_registry(
+            settings,
+            memory_manager=memory_manager,
+            sessions_dir=Path(".genesis") / "sessions",
+        )
+        discover_skills()
+        register_skill_tools(registry, skill_registry)
+        registry.register(ResearchTopicTool(registry))
+        prompt_manager = PromptManager()
+        prompt_manager.update_skills_index(build_skills_index())
+
+        agent = Agent(
+            llm_client, registry, settings,
+            memory_manager=memory_manager, prompt_manager=prompt_manager,
+        )
+        agent._skill_registry = skill_registry
+
+        session_manager = SessionManager(Path(".genesis") / "sessions")
+
+        # 3. 恢复最近一次会话（存在则恢复，失败则新会话）
+        title = _restore_latest_session(agent, session_manager)
+        if title:
+            print(f"已恢复最近会话：{title}")
+
+        # 4. 启动机器人（阻塞；WebSocket 长连接，断线由 botpy 自动重连）
+        client = QQBotClient(agent=agent, session_manager=session_manager, settings=settings)
+        client.run(appid=settings.qq_appid, secret=settings.qq_appsecret)
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"Failed to start: {e}")
+        print("Make sure your .env file is configured correctly.")
+        sys.exit(1)
+
+
+def main_entry() -> None:
+    """同步入口点 - 供 pyproject.toml 的 agent-qq 命令使用。"""
+    main()
+
+
+if __name__ == "__main__":
+    main_entry()

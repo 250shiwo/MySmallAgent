@@ -17,6 +17,8 @@ from my_small_agent.qq_bot import (
     _split_segments,
 )
 from my_small_agent.session import SessionManager
+from my_small_agent.qq_bot import _restore_latest_session, validate_qq_settings
+from my_small_agent.session import SessionData
 
 
 def make_message(content="你好", msg_id="msg-1", openid="openid-user-1", attachments=None):
@@ -266,3 +268,62 @@ async def test_compact_failure_does_not_break_reply():
     client.api.post_c2c_message.assert_any_await(
         openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容"
     )
+
+
+def _make_session_data(session_id="abc123", title="标题"):
+    return SessionData(
+        session_id=session_id,
+        created_at="2026-07-23T00:00:00+00:00",
+        updated_at="2026-07-23T01:00:00+00:00",
+        title=title,
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+
+def test_validate_settings_missing_appid():
+    settings = Settings(_env_file=None, openai_api_key="sk-test")
+    assert "QQ_APPID" in validate_qq_settings(settings)
+
+
+def test_validate_settings_missing_secret():
+    settings = Settings(_env_file=None, openai_api_key="sk-test", qq_appid="123")
+    assert "QQ_APPSECRET" in validate_qq_settings(settings)
+
+
+def test_validate_settings_ok():
+    settings = Settings(_env_file=None, openai_api_key="sk-test",
+                        qq_appid="123", qq_appsecret="s")
+    assert validate_qq_settings(settings) is None
+
+
+def test_restore_latest_session_success():
+    """恢复最近一次会话：调用 reset_session 并返回标题。"""
+    agent = MagicMock()
+    sm = MagicMock(spec=SessionManager)
+    sm.list_sessions.return_value = [_make_session_data()]
+    title = _restore_latest_session(agent, sm)
+    assert title == "标题"
+    agent.reset_session.assert_called_once_with(
+        messages=[{"role": "user", "content": "hi"}],
+        session_id="abc123",
+        title="标题",
+        created_at="2026-07-23T00:00:00+00:00",
+    )
+
+
+def test_restore_latest_session_empty():
+    """无历史会话时返回 None，不调用 reset_session。"""
+    agent = MagicMock()
+    sm = MagicMock(spec=SessionManager)
+    sm.list_sessions.return_value = []
+    assert _restore_latest_session(agent, sm) is None
+    agent.reset_session.assert_not_called()
+
+
+def test_restore_latest_session_failure():
+    """恢复失败返回 None（以新会话启动），不抛出。"""
+    agent = MagicMock()
+    agent.reset_session.side_effect = ValueError("bad data")
+    sm = MagicMock(spec=SessionManager)
+    sm.list_sessions.return_value = [_make_session_data()]
+    assert _restore_latest_session(agent, sm) is None
