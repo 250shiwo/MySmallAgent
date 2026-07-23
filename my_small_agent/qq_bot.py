@@ -124,6 +124,8 @@ class QQBotClient(botpy.Client):
     async def on_ready(self) -> None:
         """WebSocket 连接建立后触发。"""
         logger.info(f"QQ 机器人已就绪：{self.robot.name}")
+        if not self._allowed_users:
+            logger.warning("未配置 QQ_ALLOWED_USERS 白名单，任何用户均可与机器人对话")
 
     async def on_c2c_message_create(self, message) -> None:
         """
@@ -136,6 +138,7 @@ class QQBotClient(botpy.Client):
           attachments           附件列表（图片等，可能不存在）
         """
         openid = message.author.union_openid
+        logger.info(f"收到 C2C 消息：openid={openid}")
         content = (message.content or "").strip()
 
         # 白名单检查：非白名单用户拒绝
