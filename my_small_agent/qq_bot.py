@@ -148,9 +148,53 @@ class QQBotClient(botpy.Client):
         except Exception as e:
             logger.error(f"回复发送失败：{e}")
 
+        # 4. 持久化 + 自动压缩（压缩提示仅记日志，不占被动回复额度）
+        self._save_session()
+        if await self._auto_compact_if_needed():
+            logger.info("上下文已自动压缩")
+
     async def _reply(self, message, openid: str, content: str) -> None:
         """分段发送回复，每段均携带原消息 msg_id（被动回复）。"""
         for segment in _split_segments(content):
             await self.api.post_c2c_message(
                 openid=openid, msg_type=0, msg_id=message.id, content=segment
             )
+
+    def _save_session(self) -> None:
+        """保存当前会话到文件。失败时记录警告，不中断对话。"""
+        # title 为空时，从消息列表取第一条 user 消息的前 50 字符
+        if not self.agent.session_title:
+            for msg in self.agent.messages:
+                if msg.get("role") == "user":
+                    self.agent.session_title = msg["content"][:50]
+                    break
+        title = self.agent.session_title or "New Session"
+        # 过滤掉 system prompt，只保存对话消息
+        messages = [m for m in self.agent.messages if m.get("role") != "system"]
+        try:
+            self.session_manager.save(
+                session_id=self.agent.session_id,
+                title=title,
+                created_at=self.agent.created_at,
+                messages=messages,
+            )
+        except Exception as e:
+            logger.warning(f"会话保存失败：{e}")
+
+    async def _auto_compact_if_needed(self) -> bool:
+        """token 估算超过阈值时自动压缩（判定逻辑与 cli.py 一致）。返回是否执行了压缩。"""
+        tokens = self.agent.estimate_tokens()
+        threshold = int(
+            self.agent.settings.max_context_tokens * self.agent.settings.compression_threshold
+        )
+        min_required = self.agent.settings.head_keep + self.agent.settings.tail_keep
+        if tokens >= threshold and len(self.agent.messages) > min_required:
+            logger.info(f"Token 用量（{tokens:,}）达到阈值（{threshold:,}），自动压缩中...")
+            try:
+                before, after = await self.agent.compact_context()
+                logger.info(f"自动压缩完成：{before} 条 → {after} 条")
+            except Exception as e:
+                logger.warning(f"自动压缩失败：{e}")
+                return False
+            return True
+        return False

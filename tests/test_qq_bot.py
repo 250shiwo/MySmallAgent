@@ -181,3 +181,88 @@ async def test_long_reply_sent_in_segments_with_msg_id():
     assert len(body) == 3  # 4000 字 → 1800 + 1800 + 400
     assert all(len(s) <= SEGMENT_LEN for s in body)
     assert all(c.kwargs["msg_id"] == "msg-1" for c in calls)
+
+
+async def test_session_saved_after_turn():
+    """对话完成后保存会话；title 取首条 user 消息。"""
+    client, agent, session_manager = make_client()
+
+    async def fake_turn(text, confirm_callback):
+        agent.messages.append({"role": "user", "content": text})
+        agent.messages.append({"role": "assistant", "content": "回复内容"})
+        return AgentResponse(content="回复内容")
+
+    agent.run_turn = AsyncMock(side_effect=fake_turn)
+    await client.on_c2c_message_create(make_message(content="你好"))
+    session_manager.save.assert_called_once()
+    kwargs = session_manager.save.call_args.kwargs
+    assert kwargs["session_id"] == "test-session-id"
+    assert kwargs["title"] == "你好"
+    assert kwargs["created_at"] == "2026-07-23T00:00:00+00:00"
+    assert len(kwargs["messages"]) == 2
+
+
+async def test_session_save_filters_system_messages():
+    """保存的 messages 不含 system prompt。"""
+    client, agent, session_manager = make_client()
+    agent.messages = [{"role": "system", "content": "sys"}]
+
+    async def fake_turn(text, confirm_callback):
+        agent.messages.append({"role": "user", "content": text})
+        return AgentResponse(content="回复内容")
+
+    agent.run_turn = AsyncMock(side_effect=fake_turn)
+    await client.on_c2c_message_create(make_message())
+    messages = session_manager.save.call_args.kwargs["messages"]
+    assert all(m["role"] != "system" for m in messages)
+
+
+async def test_reply_failure_still_saves_session():
+    """正式回复发送失败仍保存会话（对话历史连续）。"""
+    client, agent, session_manager = make_client()
+    # 第一次调用（占位）成功，第二次（正式回复）抛网络异常
+    client.api.post_c2c_message = AsyncMock(
+        side_effect=[None, RuntimeError("network error")]
+    )
+    await client.on_c2c_message_create(make_message())
+    session_manager.save.assert_called_once()
+
+
+async def test_session_save_failure_does_not_break():
+    """保存失败不中断对话流程。"""
+    client, _, session_manager = make_client()
+    session_manager.save.side_effect = OSError("disk full")
+    await client.on_c2c_message_create(make_message())
+    client.api.post_c2c_message.assert_any_await(
+        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容"
+    )
+
+
+async def test_auto_compact_triggered_over_threshold():
+    """token 超阈值且消息数足够时触发自动压缩。"""
+    client, agent, _ = make_client()
+    agent.messages = [{"role": "user", "content": "x"}] * 30  # > head_keep(3)+tail_keep(20)
+    agent.estimate_tokens = MagicMock(return_value=2_000_000)  # >= 0.8 * 2_000_000
+    agent.compact_context = AsyncMock(return_value=(30, 10))
+    await client.on_c2c_message_create(make_message())
+    agent.compact_context.assert_called_once()
+
+
+async def test_auto_compact_skipped_below_threshold():
+    """token 未达阈值时不压缩。"""
+    client, agent, _ = make_client()
+    agent.compact_context = AsyncMock()
+    await client.on_c2c_message_create(make_message())
+    agent.compact_context.assert_not_called()
+
+
+async def test_compact_failure_does_not_break_reply():
+    """压缩失败仅记日志，不中断对话。"""
+    client, agent, _ = make_client()
+    agent.messages = [{"role": "user", "content": "x"}] * 30
+    agent.estimate_tokens = MagicMock(return_value=2_000_000)
+    agent.compact_context = AsyncMock(side_effect=RuntimeError("LLM down"))
+    await client.on_c2c_message_create(make_message())
+    client.api.post_c2c_message.assert_any_await(
+        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容"
+    )
