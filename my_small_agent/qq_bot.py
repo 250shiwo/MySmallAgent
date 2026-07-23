@@ -276,6 +276,9 @@ def main() -> None:
         discover_skills()
         register_skill_tools(registry, skill_registry)
         registry.register(ResearchTopicTool(registry))
+        # 连接 MCP server 并注册其工具（client.run() 前，自包含 asyncio.run）
+        from my_small_agent.mcp_client import register_mcp_tools
+        asyncio.run(register_mcp_tools(registry, "mcp.json"))
         prompt_manager = PromptManager()
         prompt_manager.update_skills_index(build_skills_index())
 

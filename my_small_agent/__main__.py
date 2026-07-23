@@ -63,6 +63,10 @@ async def main() -> None:
         register_skill_tools(registry, skill_registry)
         registry.register(ResearchTopicTool(registry))
 
+        # 4.8 连接 MCP server 并注册其工具（失败降级，不阻断启动）
+        from my_small_agent.mcp_client import register_mcp_tools
+        await register_mcp_tools(registry, "mcp.json")
+
         # 4.7 初始化 PromptManager（加载基础提示词 + 拼接技能索引）
         prompt_manager = PromptManager()
         prompt_manager.update_skills_index(build_skills_index())
