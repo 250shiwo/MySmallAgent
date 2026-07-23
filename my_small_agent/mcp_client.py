@@ -92,3 +92,42 @@ def _stringify_result(result) -> str:
         )
     except (TypeError, ValueError):
         return str(result)
+
+
+async def _call_remote_tool(cfg: MCPServerConfig, tool_name: str, arguments: dict) -> str:
+    """即时连接远程 server，调用 tool，返回文本结果（连→调→断，自包含）。"""
+    params = StdioServerParameters(
+        command=cfg.command, args=cfg.args, env=cfg.env or None
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(tool_name, arguments)
+            return _stringify_result(result)
+
+
+class MCPTool(Tool):
+    """包装单个远程 MCP tool。execute 时即时连接。"""
+
+    danger_level = "dangerous"
+    category = "write"
+
+    def __init__(
+        self, registered_name, remote_tool_name, description, parameters, server_config
+    ):
+        self.name = registered_name
+        self._remote_tool_name = remote_tool_name
+        self.description = description
+        self.parameters = parameters
+        self._server_config = server_config
+
+    async def execute(self, **kwargs) -> str:
+        try:
+            return await _call_remote_tool(
+                self._server_config, self._remote_tool_name, kwargs
+            )
+        except Exception as e:
+            return json.dumps(
+                {"error": f"MCP tool '{self.name}' failed: {e}"},
+                ensure_ascii=False,
+            )

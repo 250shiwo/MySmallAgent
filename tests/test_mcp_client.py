@@ -7,6 +7,8 @@ import pytest
 
 from my_small_agent.mcp_client import MCPServerConfig, load_mcp_config
 from my_small_agent.mcp_client import _make_tool_name, _stringify_result
+from my_small_agent.mcp_client import MCPTool
+import my_small_agent.mcp_client as mcp_client
 
 
 def test_load_config_parses_multiple_servers(tmp_path):
@@ -88,3 +90,97 @@ def test_stringify_result_empty_content_returns_json():
     result = SimpleNamespace(content=[])
     out = _stringify_result(result)
     assert out == "[]"
+
+
+class _FakeStdioCtx:
+    """假 stdio_client：async with 返回 (read, write) 哨兵。"""
+    async def __aenter__(self):
+        return ("read", "write")
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    """假 ClientSession：可预设 list_tools / call_tool 的返回。"""
+    def __init__(self, read, write, *, tools=None, call_result=None, call_error=None):
+        self._tools = tools or []
+        self._call_result = call_result
+        self._call_error = call_error
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def initialize(self):
+        pass
+
+    async def list_tools(self):
+        return SimpleNamespace(tools=self._tools)
+
+    async def call_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        if self._call_error is not None:
+            raise self._call_error
+        return self._call_result
+
+
+def _patch_connection(monkeypatch, *, tools=None, call_result=None, call_error=None):
+    """monkeypatch stdio_client 与 ClientSession，返回捕获到的 session。"""
+    captured = {}
+
+    def fake_stdio_client(params):
+        captured["params"] = params
+        return _FakeStdioCtx()
+
+    def fake_client_session(read, write):
+        session = _FakeSession(
+            read, write, tools=tools,
+            call_result=call_result, call_error=call_error,
+        )
+        captured["session"] = session
+        return session
+
+    monkeypatch.setattr(mcp_client, "stdio_client", fake_stdio_client)
+    monkeypatch.setattr(mcp_client, "ClientSession", fake_client_session)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_execute_calls_remote_and_stringifies(monkeypatch):
+    result = SimpleNamespace(content=[SimpleNamespace(text="42")])
+    captured = _patch_connection(monkeypatch, call_result=result)
+    cfg = MCPServerConfig(name="calc", command="python", args=["s.py"])
+    tool = MCPTool(
+        registered_name="mcp_calc_add",
+        remote_tool_name="add",
+        description="add numbers",
+        parameters={"type": "object", "properties": {}},
+        server_config=cfg,
+    )
+
+    out = await tool.execute(a=5, b=3)
+
+    assert out == "42"
+    assert captured["session"].calls == [("add", {"a": 5, "b": 3})]
+
+
+def test_mcp_tool_danger_level_and_category():
+    cfg = MCPServerConfig(name="s", command="python")
+    tool = MCPTool("mcp_s_t", "t", "d", {}, cfg)
+    assert tool.danger_level == "dangerous"
+    assert tool.category == "write"
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_execute_error_returns_json(monkeypatch):
+    _patch_connection(monkeypatch, call_error=RuntimeError("boom"))
+    cfg = MCPServerConfig(name="s", command="python")
+    tool = MCPTool("mcp_s_t", "t", "d", {}, cfg)
+
+    out = await tool.execute()
+
+    assert "error" in json.loads(out)
