@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     tail_keep: int = 20                    # 压缩时保留末尾消息条数
     compression_threshold: float = 0.8     # 自动触发压缩的 token 用量比例
 
+    # QQ 机器人配置（仅 qq_bot.py 前端使用；CLI 模式可留空）
+    qq_appid: str = ""                 # QQ 机器人 AppID（q.qq.com/qqbot/openclaw/ 创建后获取）
+    qq_appsecret: str = ""             # QQ 机器人 AppSecret（仅显示一次，须立即保存）
+    qq_allowed_users: str = ""         # 可选：允许的 openid 白名单（逗号分隔），空 = 不限制
+
     # 告诉 pydantic-settings 从项目根目录的 .env 文件读取配置
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -77,3 +77,24 @@ def test_compression_fields_from_env(monkeypatch):
     assert settings.head_keep == 5
     assert settings.tail_keep == 15
     assert settings.compression_threshold == 0.9
+
+
+def test_qq_fields_defaults(monkeypatch):
+    """QQ 机器人配置项应有正确默认值（空字符串）。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    settings = Settings(_env_file=None)
+    assert settings.qq_appid == ""
+    assert settings.qq_appsecret == ""
+    assert settings.qq_allowed_users == ""
+
+
+def test_qq_fields_from_env(monkeypatch):
+    """QQ 机器人配置项应能从环境变量读取。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("QQ_APPID", "123456789")
+    monkeypatch.setenv("QQ_APPSECRET", "my-secret")
+    monkeypatch.setenv("QQ_ALLOWED_USERS", "openid-a,openid-b")
+    settings = Settings(_env_file=None)
+    assert settings.qq_appid == "123456789"
+    assert settings.qq_appsecret == "my-secret"
+    assert settings.qq_allowed_users == "openid-a,openid-b"
