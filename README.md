@@ -39,6 +39,7 @@
 - **长期记忆** — `memory_save` 持久化用户偏好，`session_search` 搜索历史会话
 - **会话持久化** — `/resume` 恢复历史会话，`/sessions` 列出所有会话
 - **CLI 交互** — prompt_toolkit 输入 + rich 美化输出（Markdown 渲染、加载动画、流式打印）
+- **QQ 机器人** — 官方 botpy SDK 接入 QQ 私聊（C2C）：WebSocket 出站长连接（无需公网 IP）、单会话常驻 Agent（记忆/压缩/技能全部生效）、长回复自动分段、重启自动恢复最近会话、可选 openid 白名单
 
 ## 快速开始
 
@@ -80,15 +81,52 @@ MAX_CONTEXT_TOKENS=2000000
 HEAD_KEEP=3
 TAIL_KEEP=20
 COMPRESSION_THRESHOLD=0.8
+
+# QQ 机器人（可选，仅 agent-qq 启动方式需要）
+QQ_APPID=
+QQ_APPSECRET=
+QQ_ALLOWED_USERS=
 ```
 
 如果使用 DeepSeek 等兼容 API，修改 `OPENAI_BASE_URL` 和 `OPENAI_MODEL` 即可。思维链功能需要 DeepSeek API 支持。
 
 ### 启动
 
+本项目有两种前端，按需选择：
+
+#### 方式一：CLI 终端（默认）
+
 ```bash
 uv run python -m my_small_agent
+# 或
+uv run agent
 ```
+
+#### 方式二：QQ 机器人（私聊）
+
+**第 1 步：创建机器人（一次性，约 1 分钟）**
+
+1. PC 打开 [QQ 开放平台快捷通道](https://q.qq.com/qqbot/openclaw/)，用手机 QQ 扫码登录
+2. 点击「创建机器人」，在机器人设置页复制 **AppID** 和 **AppSecret**
+   - ⚠️ AppSecret 只显示一次，务必立即保存
+3. 填入 `.env` 的 `QQ_APPID` 和 `QQ_APPSECRET`
+
+**第 2 步：启动桥接进程**
+
+```bash
+uv run agent-qq
+# 或
+uv run python -m my_small_agent.qq_bot
+```
+
+看到 `QQ 机器人已就绪` 即启动成功。保持进程运行，在手机/桌面 QQ 中找到你的机器人，直接私聊即可。
+
+**说明：**
+- 采用 WebSocket 出站长连接，**无需公网 IP**，家庭宽带/NAT 环境均可运行
+- 对话为单会话：长期记忆、上下文压缩、技能系统与 CLI 完全一致
+- 危险工具（写文件/执行 shell 等）在 QQ 场景自动批准，请妥善保管机器人
+- 启动后从日志复制你的 openid 填入 `QQ_ALLOWED_USERS`，可锁定只服务你一人
+- 重启进程会自动恢复最近一次会话，对话不断片
 
 ## CLI 命令
 
@@ -117,7 +155,8 @@ uv run python -m my_small_agent
 
 ```
 my_small_agent/
-├── __main__.py            # 入口（组装所有组件并启动）
+├── __main__.py            # CLI 入口（组装所有组件并启动）
+├── qq_bot.py              # QQ 机器人入口（botpy WebSocket 桥接 + C2C 私聊前端）
 ├── config.py              # 配置管理（pydantic-settings）
 ├── agent.py               # 对话循环核心（流式 + Token估算 + 上下文压缩 + Plan 模式）
 ├── llm.py                 # OpenAI 异步客户端（chat + chat_stream）
@@ -176,6 +215,7 @@ uv run pytest -v
 | 终端输入 | `prompt_toolkit` |
 | 终端输出 | `rich` |
 | 交互选择 | `questionary`（方向键导航菜单） |
+| QQ 机器人 | `qq-botpy`（官方 SDK，WebSocket Gateway + REST API v2） |
 | 时区 | `zoneinfo` + `tzdata`（Windows） |
 | 依赖管理 | `uv` + `pyproject.toml` |
 
