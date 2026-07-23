@@ -68,3 +68,27 @@ def load_mcp_config(path: str = "mcp.json") -> dict[str, MCPServerConfig]:
             env=dict(entry.get("env", {})),
         )
     return result
+
+
+def _make_tool_name(server: str, tool: str) -> str:
+    """拼 mcp_{server}_{tool}，净化非法字符，保留前 64 字符。"""
+    raw = f"mcp_{server}_{tool}"
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", raw)
+    return cleaned[:64]
+
+
+def _stringify_result(result) -> str:
+    """把 CallToolResult 的 content 块拼为字符串；无文本时回退 JSON。"""
+    parts: list[str] = []
+    for block in getattr(result, "content", None) or []:
+        text = getattr(block, "text", None)
+        if text is not None:
+            parts.append(text)
+    if parts:
+        return "\n".join(parts)
+    try:
+        return json.dumps(
+            getattr(result, "content", []), default=str, ensure_ascii=False
+        )
+    except (TypeError, ValueError):
+        return str(result)
