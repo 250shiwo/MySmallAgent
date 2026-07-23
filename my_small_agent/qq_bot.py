@@ -20,8 +20,6 @@ from my_small_agent.agent import Agent
 from my_small_agent.config import Settings
 from my_small_agent.session import SessionManager
 
-# 占位反馈文本（LLM + 工具调用耗时较长时让用户感知处理中）
-PLACEHOLDER_TEXT = "🤔 思考中..."
 # LLM 返回空文本时的兜底提示
 EMPTY_REPLY_TEXT = "(无文本回复)"
 # 分段发送参数：QQ 单条 C2C 文本上限约 2000 字，预留余量取 1800
@@ -109,9 +107,10 @@ class QQBotClient(botpy.Client):
     """
 
     def __init__(self, agent: Agent, session_manager: SessionManager, settings: Settings) -> None:
-        intents = botpy.Intents(public_guild_messages=True)
+        intents = botpy.Intents(public_messages=True)
         # ext_handlers=False：关闭 botpy 默认的文件日志 handler，仅保留控制台输出
         super().__init__(intents=intents, ext_handlers=False)
+        self._intents = intents
         self.agent = agent
         self.session_manager = session_manager
         self.settings = settings
@@ -132,12 +131,12 @@ class QQBotClient(botpy.Client):
         C2C 私聊消息入口。过滤顺序：白名单 → 空文本/附件 → 锁内处理。
 
         message 关键属性（duck typing）：
-          id                    消息 ID（被动回复必须携带）
-          content               文本内容
-          author.union_openid   发送者 openid
-          attachments           附件列表（图片等，可能不存在）
+          id                   消息 ID（被动回复必须携带）
+          content              文本内容
+          author.user_openid   发送者 openid
+          attachments          附件列表（图片等，可能不存在）
         """
-        openid = message.author.union_openid
+        openid = message.author.user_openid
         logger.info(f"收到 C2C 消息：openid={openid}")
         content = (message.content or "").strip()
 
@@ -162,16 +161,12 @@ class QQBotClient(botpy.Client):
             await self._handle_message(message, openid, content)
 
     async def _handle_message(self, message, openid: str, content: str) -> None:
-        """锁内处理一条消息：占位 → 对话 → 回复。"""
-        # 1. 占位反馈（失败不阻塞主流程）
-        try:
-            await self.api.post_c2c_message(
-                openid=openid, msg_type=0, msg_id=message.id, content=PLACEHOLDER_TEXT
-            )
-        except Exception as e:
-            logger.warning(f"占位消息发送失败：{e}")
+        """锁内处理一条消息：对话 → 回复。
 
-        # 2. 执行对话（thinking 内容不回传 QQ，仅使用 content）
+        同一条用户消息的多段回复必须携带递增的 msg_seq，
+        否则会被 QQ 服务端按 (msg_id, msg_seq) 去重拒绝（错误码 40054005）。
+        """
+        # 1. 执行对话（thinking 内容不回传 QQ，仅使用 content）
         try:
             response = await self.agent.run_turn(content, confirm_callback=_auto_approve)
         except Exception as e:
@@ -179,22 +174,23 @@ class QQBotClient(botpy.Client):
             await self._reply(message, openid, f"处理出错：{e}")
             return
 
-        # 3. 发送正式回复（失败仅记日志，继续保存会话，保持历史连续）
+        # 2. 发送正式回复（失败仅记日志，继续保存会话，保持历史连续）
         try:
             await self._reply(message, openid, response.content)
         except Exception as e:
             logger.error(f"回复发送失败：{e}")
 
-        # 4. 持久化 + 自动压缩（压缩提示仅记日志，不占被动回复额度）
+        # 3. 持久化 + 自动压缩（压缩提示仅记日志，不占被动回复额度）
         self._save_session()
         if await self._auto_compact_if_needed():
             logger.info("上下文已自动压缩")
 
     async def _reply(self, message, openid: str, content: str) -> None:
-        """分段发送回复，每段均携带原消息 msg_id（被动回复）。"""
-        for segment in _split_segments(content):
+        """分段发送回复，每段携带原消息 msg_id 与递增的 msg_seq（被动回复去重）。"""
+        for i, segment in enumerate(_split_segments(content)):
             await self.api.post_c2c_message(
-                openid=openid, msg_type=0, msg_id=message.id, content=segment
+                openid=openid, msg_type=0, msg_id=message.id,
+                content=segment, msg_seq=i + 1,
             )
 
     def _save_session(self) -> None:
@@ -268,13 +264,14 @@ def main() -> None:
             )
             sys.exit(1)
 
-        # 2. 组装组件（与 __main__.py 相同）
+        # 2. 组装组件（组装链与 __main__.py 相同；会话目录用 QQ 专属，与 CLI 隔离）
         llm_client = LLMClient(settings)
         memory_manager = MemoryManager(Path(".genesis") / "memory")
+        qq_sessions_dir = Path(".genesis") / "qq_sessions"
         registry = create_default_registry(
             settings,
             memory_manager=memory_manager,
-            sessions_dir=Path(".genesis") / "sessions",
+            sessions_dir=qq_sessions_dir,
         )
         discover_skills()
         register_skill_tools(registry, skill_registry)
@@ -288,7 +285,7 @@ def main() -> None:
         )
         agent._skill_registry = skill_registry
 
-        session_manager = SessionManager(Path(".genesis") / "sessions")
+        session_manager = SessionManager(qq_sessions_dir)
 
         # 3. 恢复最近一次会话（存在则恢复，失败则新会话）
         title = _restore_latest_session(agent, session_manager)

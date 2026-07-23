@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 from my_small_agent.agent import AgentResponse
 from my_small_agent.config import Settings
 from my_small_agent.qq_bot import (
-    PLACEHOLDER_TEXT,
     QQBotClient,
     _auto_approve,
 )
@@ -22,12 +21,29 @@ from my_small_agent.session import SessionData
 
 
 def make_message(content="你好", msg_id="msg-1", openid="openid-user-1", attachments=None):
-    """构造模拟 C2C 消息（duck typing：id/content/author.union_openid/attachments）。"""
+    """构造模拟 C2C 消息（duck typing：id/content/author.user_openid/attachments）。"""
     return SimpleNamespace(
         id=msg_id,
         content=content,
-        author=SimpleNamespace(union_openid=openid),
+        author=SimpleNamespace(user_openid=openid),
         attachments=attachments,
+    )
+
+
+async def test_intents_subscribes_c2c_private_messages():
+    """C2C 私聊必须订阅 public_messages，而非频道的 public_guild_messages。"""
+    client, _, _ = make_client()
+    assert client._intents.public_messages is True
+    assert client._intents.public_guild_messages is False
+
+
+async def test_reply_uses_user_openid_field():
+    """提取 openid 用 author.user_openid（官方 C2C 字段名）。"""
+    client, agent, _ = make_client()
+    await client.on_c2c_message_create(make_message(openid="real-openid"))
+    agent.run_turn.assert_called_once()
+    client.api.post_c2c_message.assert_any_await(
+        openid="real-openid", msg_type=0, msg_id="msg-1", content="回复内容", msg_seq=1
     )
 
 
@@ -62,17 +78,29 @@ async def test_text_message_triggers_run_turn_and_replies_with_msg_id():
     assert args[0] == "你好"
     assert kwargs["confirm_callback"] is _auto_approve
     client.api.post_c2c_message.assert_any_await(
-        openid="openid-user-1", msg_type=0, msg_id="m-1", content="回复内容"
+        openid="openid-user-1", msg_type=0, msg_id="m-1", content="回复内容", msg_seq=1
     )
 
 
-async def test_placeholder_sent_before_reply():
-    """占位消息先于正式回复发送。"""
+async def test_first_send_is_reply_no_placeholder():
+    """不发占位消息：第一条（且短回复唯一一条）即为正式回复。"""
     client, _, _ = make_client()
     await client.on_c2c_message_create(make_message())
     calls = client.api.post_c2c_message.await_args_list
-    assert calls[0].kwargs["content"] == PLACEHOLDER_TEXT
-    assert calls[1].kwargs["content"] == "回复内容"
+    assert len(calls) == 1
+    assert calls[0].kwargs["content"] == "回复内容"
+
+
+async def test_passive_replies_carry_distinct_incrementing_msg_seq():
+    """分段正文回复同一 msg_id 时，msg_seq 必须递增去重（否则被 QQ 去重拒绝）。"""
+    client, agent, _ = make_client()
+    agent.run_turn = AsyncMock(return_value=AgentResponse(content="a" * 4000))  # 分 3 段
+    await client.on_c2c_message_create(make_message(msg_id="m-1"))
+    calls = client.api.post_c2c_message.await_args_list
+    # 正文 3 段 = 3 次发送，全部回复同一 msg_id
+    assert all(c.kwargs["msg_id"] == "m-1" for c in calls)
+    seqs = [c.kwargs["msg_seq"] for c in calls]
+    assert seqs == [1, 2, 3]
 
 
 async def test_blank_message_ignored():
@@ -178,8 +206,7 @@ async def test_long_reply_sent_in_segments_with_msg_id():
     agent.run_turn = AsyncMock(return_value=AgentResponse(content="a" * 4000))
     await client.on_c2c_message_create(make_message())
     calls = client.api.post_c2c_message.await_args_list
-    assert calls[0].kwargs["content"] == PLACEHOLDER_TEXT
-    body = [c.kwargs["content"] for c in calls[1:]]
+    body = [c.kwargs["content"] for c in calls]
     assert len(body) == 3  # 4000 字 → 1800 + 1800 + 400
     assert all(len(s) <= SEGMENT_LEN for s in body)
     assert all(c.kwargs["msg_id"] == "msg-1" for c in calls)
@@ -222,10 +249,8 @@ async def test_session_save_filters_system_messages():
 async def test_reply_failure_still_saves_session():
     """正式回复发送失败仍保存会话（对话历史连续）。"""
     client, agent, session_manager = make_client()
-    # 第一次调用（占位）成功，第二次（正式回复）抛网络异常
-    client.api.post_c2c_message = AsyncMock(
-        side_effect=[None, RuntimeError("network error")]
-    )
+    # 正式回复发送抛网络异常
+    client.api.post_c2c_message = AsyncMock(side_effect=RuntimeError("network error"))
     await client.on_c2c_message_create(make_message())
     session_manager.save.assert_called_once()
 
@@ -236,7 +261,7 @@ async def test_session_save_failure_does_not_break():
     session_manager.save.side_effect = OSError("disk full")
     await client.on_c2c_message_create(make_message())
     client.api.post_c2c_message.assert_any_await(
-        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容"
+        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容", msg_seq=1
     )
 
 
@@ -266,7 +291,7 @@ async def test_compact_failure_does_not_break_reply():
     agent.compact_context = AsyncMock(side_effect=RuntimeError("LLM down"))
     await client.on_c2c_message_create(make_message())
     client.api.post_c2c_message.assert_any_await(
-        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容"
+        openid="openid-user-1", msg_type=0, msg_id="msg-1", content="回复内容", msg_seq=1
     )
 
 
