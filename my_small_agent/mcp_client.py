@@ -131,3 +131,45 @@ class MCPTool(Tool):
                 {"error": f"MCP tool '{self.name}' failed: {e}"},
                 ensure_ascii=False,
             )
+
+
+async def _discover_tools(cfg: MCPServerConfig, timeout: float = 30.0) -> list:
+    """一次性连接 server 拉取 tool 列表（带超时），连→列→断。"""
+    async def _connect():
+        params = StdioServerParameters(
+            command=cfg.command, args=cfg.args, env=cfg.env or None
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return (await session.list_tools()).tools
+
+    return await asyncio.wait_for(_connect(), timeout=timeout)
+
+
+async def register_mcp_tools(registry, config_path: str = "mcp.json") -> None:
+    """
+    启动时发现并注册所有 MCP server 的 tools。
+
+    降级不阻断：单个 server 连接失败 → 记 warning、跳过、其余照常。
+    """
+    servers = load_mcp_config(config_path)
+    for name, cfg in servers.items():
+        try:
+            tools = await _discover_tools(cfg)
+        except Exception as e:
+            logger.warning(f"MCP server '{name}' 连接失败，已跳过：{e}")
+            continue
+        for t in tools:
+            registered = _make_tool_name(name, t.name)
+            if registry.get(registered) is not None:
+                logger.warning(f"工具名冲突，跳过：{registered}")
+                continue
+            registry.register(MCPTool(
+                registered_name=registered,
+                remote_tool_name=t.name,
+                description=t.description or "",
+                parameters=t.inputSchema or {"type": "object", "properties": {}},
+                server_config=cfg,
+            ))
+        logger.info(f"MCP server '{name}' 已注册 {len(tools)} 个工具")

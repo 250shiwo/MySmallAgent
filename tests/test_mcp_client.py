@@ -8,6 +8,8 @@ import pytest
 from my_small_agent.mcp_client import MCPServerConfig, load_mcp_config
 from my_small_agent.mcp_client import _make_tool_name, _stringify_result
 from my_small_agent.mcp_client import MCPTool
+from my_small_agent.mcp_client import register_mcp_tools
+from my_small_agent.tools import ToolRegistry
 import my_small_agent.mcp_client as mcp_client
 
 
@@ -184,3 +186,73 @@ async def test_mcp_tool_execute_error_returns_json(monkeypatch):
     out = await tool.execute()
 
     assert "error" in json.loads(out)
+
+
+def _fake_tool(name, description="d", schema=None):
+    return SimpleNamespace(
+        name=name, description=description,
+        inputSchema=schema or {"type": "object", "properties": {}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_register_discovers_and_registers_tools(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"calc": {"command": "python", "args": ["s.py"]}}
+    }), encoding="utf-8")
+    _patch_connection(monkeypatch, tools=[_fake_tool("add"), _fake_tool("sub")])
+    registry = ToolRegistry()
+
+    await register_mcp_tools(registry, str(cfg_file))
+
+    add = registry.get("mcp_calc_add")
+    assert add is not None
+    assert add.danger_level == "dangerous"
+    assert registry.get("mcp_calc_sub") is not None
+
+
+@pytest.mark.asyncio
+async def test_register_skips_name_conflict(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"calc": {"command": "python"}}
+    }), encoding="utf-8")
+    _patch_connection(monkeypatch, tools=[_fake_tool("add"), _fake_tool("add")])
+    registry = ToolRegistry()
+
+    await register_mcp_tools(registry, str(cfg_file))
+
+    # 两个同名 → 注册名相同，第二个被跳过；registry 里仍只有一个
+    assert registry.get("mcp_calc_add") is not None
+
+
+@pytest.mark.asyncio
+async def test_register_degrades_when_server_fails(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {
+            "bad": {"command": "python"},
+            "good": {"command": "python"},
+        }
+    }), encoding="utf-8")
+
+    async def fake_discover(cfg, timeout=30.0):
+        if cfg.name == "bad":
+            raise RuntimeError("connect failed")
+        return [_fake_tool("ok")]
+
+    monkeypatch.setattr(mcp_client, "_discover_tools", fake_discover)
+    registry = ToolRegistry()
+
+    # 不抛异常
+    await register_mcp_tools(registry, str(cfg_file))
+
+    assert registry.get("mcp_good_ok") is not None
+
+
+@pytest.mark.asyncio
+async def test_register_no_config_is_noop(tmp_path):
+    registry = ToolRegistry()
+    await register_mcp_tools(registry, str(tmp_path / "absent.json"))
+    assert registry.list_all() == []
