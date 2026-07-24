@@ -160,6 +160,7 @@ async def register_mcp_tools(registry, config_path: str = "mcp.json") -> None:
         except Exception as e:
             logger.warning(f"MCP server '{name}' 连接失败，已跳过：{e}")
             continue
+        registered_count = 0
         for t in tools:
             registered = _make_tool_name(name, t.name)
             if registry.get(registered) is not None:
@@ -172,4 +173,5 @@ async def register_mcp_tools(registry, config_path: str = "mcp.json") -> None:
                 parameters=t.inputSchema or {"type": "object", "properties": {}},
                 server_config=cfg,
             ))
-        logger.info(f"MCP server '{name}' 已注册 {len(tools)} 个工具")
+            registered_count += 1
+        logger.info(f"MCP server '{name}' 已注册 {registered_count}/{len(tools)} 个工具")
