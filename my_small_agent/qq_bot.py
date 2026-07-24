@@ -279,6 +279,9 @@ def main() -> None:
         # 连接 MCP server 并注册其工具（client.run() 前，自包含 asyncio.run）
         from my_small_agent.mcp_client import register_mcp_tools
         asyncio.run(register_mcp_tools(registry, "mcp.json"))
+        # asyncio.run() 结束会关闭并清空主线程事件循环，
+        # 需重建一个供 botpy client.run() 内部的 get_event_loop() 使用
+        asyncio.set_event_loop(asyncio.new_event_loop())
         prompt_manager = PromptManager()
         prompt_manager.update_skills_index(build_skills_index())
 

@@ -226,3 +226,6 @@ __marimo__/
 # 数据
 .genesis
 mcp.json
+
+# 缓存
+.pytest_tmp
