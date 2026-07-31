@@ -39,6 +39,10 @@
 - **长期记忆** — `memory_save` 持久化用户偏好，`session_search` 搜索历史会话
 - **会话持久化** — `/resume` 恢复历史会话，`/sessions` 列出所有会话
 - **CLI 交互** — prompt_toolkit 输入 + rich 美化输出（Markdown 渲染、加载动画、流式打印）
+- **MCP 客户端** — 连接外部 MCP server 并把其工具注册为本地工具（工具名 `mcp_{server}_{tool}`）：
+  - 支持 **stdio** 与 **Streamable HTTP** 两种传输，`mcp.json` 条目写 `command` 即 stdio、写 `url` 即 HTTP
+  - 每次调用即时连接（连→调→断），不维持持久连接
+  - 降级不阻断：server 连不上只记 warning，agent 照常启动
 - **QQ 机器人** — 官方 botpy SDK 接入 QQ 私聊（C2C）：WebSocket 出站长连接（无需公网 IP）、单会话常驻 Agent（记忆/压缩/技能全部生效）、长回复自动分段、重启自动恢复最近会话、可选 openid 白名单
 
 ## 快速开始
@@ -89,6 +93,27 @@ QQ_ALLOWED_USERS=
 ```
 
 如果使用 DeepSeek 等兼容 API，修改 `OPENAI_BASE_URL` 和 `OPENAI_MODEL` 即可。思维链功能需要 DeepSeek API 支持。
+
+### MCP 配置（可选）
+
+在项目根目录创建 `mcp.json`（参考 `mcp.json.example`），启动时自动发现并注册其中的 MCP 工具：
+
+```json
+{
+  "mcpServers": {
+    "local-stdio": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    "remote-http": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+- 条目含 `command` → stdio 传输（启动子进程）；含 `url` → Streamable HTTP 传输（连接远程/容器化 server）
+- 没有 `mcp.json` 或 server 不可用时，agent 照常运行，不受影响
 
 ### 启动
 
@@ -166,6 +191,7 @@ my_small_agent/
 ├── system_prompt.md       # 基础系统提示词
 ├── memory.py              # 长期记忆管理（memory.json）
 ├── session.py             # 会话持久化（保存/恢复/搜索）
+├── mcp_client.py          # MCP 客户端（stdio + Streamable HTTP，外部工具注册）
 ├── tools/
 │   ├── __init__.py            # 工具注册表（ToolRegistry + create_default_registry）
 │   ├── base.py                # 工具抽象基类（danger_level + category 双维度）
@@ -216,6 +242,7 @@ uv run pytest -v
 | 终端输出 | `rich` |
 | 交互选择 | `questionary`（方向键导航菜单） |
 | QQ 机器人 | `qq-botpy`（官方 SDK，WebSocket Gateway + REST API v2） |
+| MCP 客户端 | `mcp`（官方 SDK，stdio + Streamable HTTP 双传输） |
 | 时区 | `zoneinfo` + `tzdata`（Windows） |
 | 依赖管理 | `uv` + `pyproject.toml` |
 
