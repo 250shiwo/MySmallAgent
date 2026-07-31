@@ -24,11 +24,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MCPServerConfig:
-    """单个 MCP server 的启动参数（来自 mcp.json 的一项）。"""
+    """单个 MCP server 的连接参数（来自 mcp.json 的一项）。"""
     name: str
-    command: str
+    command: str = ""                        # stdio 传输用
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    url: str = ""                            # HTTP 传输用
+    transport: str = "stdio"                 # "stdio" | "http"
 
 
 def load_mcp_config(path: str = "mcp.json") -> dict[str, MCPServerConfig]:
@@ -36,7 +38,7 @@ def load_mcp_config(path: str = "mcp.json") -> dict[str, MCPServerConfig]:
     读取 mcp.json，返回 {name: MCPServerConfig}。
 
     降级不阻断：文件不存在/坏 JSON/结构非法 → 记 warning 返回 {}；
-    单条缺 command → 跳过该项。
+    单条既无 command 也无 url → 跳过该项。
     """
     p = Path(path)
     if not p.exists():
@@ -58,15 +60,24 @@ def load_mcp_config(path: str = "mcp.json") -> dict[str, MCPServerConfig]:
 
     result: dict[str, MCPServerConfig] = {}
     for name, entry in servers_raw.items():
-        if not isinstance(entry, dict) or "command" not in entry:
-            logger.warning(f"MCP server '{name}' 缺少 command，已跳过")
+        if not isinstance(entry, dict):
+            logger.warning(f"MCP server '{name}' 配置非法，已跳过")
             continue
-        result[name] = MCPServerConfig(
-            name=name,
-            command=entry["command"],
-            args=list(entry.get("args", [])),
-            env=dict(entry.get("env", {})),
-        )
+        if "url" in entry:
+            # 有 url → Streamable HTTP（url 优先于 command）
+            result[name] = MCPServerConfig(
+                name=name, url=entry["url"], transport="http"
+            )
+        elif "command" in entry:
+            # 有 command → stdio（现有行为不变）
+            result[name] = MCPServerConfig(
+                name=name,
+                command=entry["command"],
+                args=list(entry.get("args", [])),
+                env=dict(entry.get("env", {})),
+            )
+        else:
+            logger.warning(f"MCP server '{name}' 缺少 command 或 url，已跳过")
     return result
 
 

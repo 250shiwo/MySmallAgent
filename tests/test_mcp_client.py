@@ -55,6 +55,44 @@ def test_load_config_skips_entry_without_command(tmp_path):
     assert set(servers) == {"good"}
 
 
+def test_load_config_parses_http_server(tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"remote": {"url": "http://localhost:8000/mcp"}}
+    }), encoding="utf-8")
+
+    servers = load_mcp_config(str(cfg_file))
+
+    assert servers["remote"].transport == "http"
+    assert servers["remote"].url == "http://localhost:8000/mcp"
+
+
+def test_load_config_stdio_entry_has_stdio_transport(tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"local": {"command": "python", "args": ["s.py"]}}
+    }), encoding="utf-8")
+
+    servers = load_mcp_config(str(cfg_file))
+
+    assert servers["local"].transport == "stdio"
+    assert servers["local"].url == ""
+
+
+def test_load_config_url_takes_precedence_over_command(tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"both": {
+            "url": "http://h:1/mcp", "command": "python"
+        }}
+    }), encoding="utf-8")
+
+    servers = load_mcp_config(str(cfg_file))
+
+    assert servers["both"].transport == "http"
+    assert servers["both"].url == "http://h:1/mcp"
+
+
 def test_load_config_missing_mcpservers_key_returns_empty(tmp_path):
     cfg_file = tmp_path / "mcp.json"
     cfg_file.write_text(json.dumps({"other": {}}), encoding="utf-8")
