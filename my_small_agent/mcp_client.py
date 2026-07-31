@@ -11,11 +11,13 @@ import asyncio
 import json
 import logging
 import re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from my_small_agent.tools.base import Tool
 
@@ -105,16 +107,30 @@ def _stringify_result(result) -> str:
         return str(result)
 
 
+@asynccontextmanager
+async def _connect(cfg: MCPServerConfig):
+    """按传输类型建连并 initialize，yield 可用的 ClientSession（连→用→断）。"""
+    if cfg.transport == "http":
+        # Streamable HTTP：注意 client 返回三元组 (read, write, get_session_id)
+        async with streamablehttp_client(cfg.url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+    else:
+        params = StdioServerParameters(
+            command=cfg.command, args=cfg.args, env=cfg.env or None
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+
+
 async def _call_remote_tool(cfg: MCPServerConfig, tool_name: str, arguments: dict) -> str:
     """即时连接远程 server，调用 tool，返回文本结果（连→调→断，自包含）。"""
-    params = StdioServerParameters(
-        command=cfg.command, args=cfg.args, env=cfg.env or None
-    )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            result = await session.call_tool(tool_name, arguments)
-            return _stringify_result(result)
+    async with _connect(cfg) as session:
+        result = await session.call_tool(tool_name, arguments)
+        return _stringify_result(result)
 
 
 class MCPTool(Tool):
@@ -146,16 +162,11 @@ class MCPTool(Tool):
 
 async def _discover_tools(cfg: MCPServerConfig, timeout: float = 30.0) -> list:
     """一次性连接 server 拉取 tool 列表（带超时），连→列→断。"""
-    async def _connect():
-        params = StdioServerParameters(
-            command=cfg.command, args=cfg.args, env=cfg.env or None
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                return (await session.list_tools()).tools
+    async def _list():
+        async with _connect(cfg) as session:
+            return (await session.list_tools()).tools
 
-    return await asyncio.wait_for(_connect(), timeout=timeout)
+    return await asyncio.wait_for(_list(), timeout=timeout)
 
 
 async def register_mcp_tools(registry, config_path: str = "mcp.json") -> None:

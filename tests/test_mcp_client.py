@@ -189,6 +189,36 @@ def _patch_connection(monkeypatch, *, tools=None, call_result=None, call_error=N
     return captured
 
 
+class _FakeHttpCtx:
+    """假 streamablehttp_client：async with 返回三元组 (read, write, get_session_id)。"""
+    async def __aenter__(self):
+        return ("read", "write", lambda: "session-id")
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _patch_http_connection(monkeypatch, *, tools=None, call_result=None, call_error=None):
+    """monkeypatch streamablehttp_client 与 ClientSession，返回捕获到的 url/session。"""
+    captured = {}
+
+    def fake_http_client(url):
+        captured["url"] = url
+        return _FakeHttpCtx()
+
+    def fake_client_session(read, write):
+        session = _FakeSession(
+            read, write, tools=tools,
+            call_result=call_result, call_error=call_error,
+        )
+        captured["session"] = session
+        return session
+
+    monkeypatch.setattr(mcp_client, "streamablehttp_client", fake_http_client)
+    monkeypatch.setattr(mcp_client, "ClientSession", fake_client_session)
+    return captured
+
+
 @pytest.mark.asyncio
 async def test_mcp_tool_execute_calls_remote_and_stringifies(monkeypatch):
     result = SimpleNamespace(content=[SimpleNamespace(text="42")])
@@ -293,4 +323,53 @@ async def test_register_degrades_when_server_fails(monkeypatch, tmp_path):
 async def test_register_no_config_is_noop(tmp_path):
     registry = ToolRegistry()
     await register_mcp_tools(registry, str(tmp_path / "absent.json"))
+    assert registry.list_all() == []
+
+
+@pytest.mark.asyncio
+async def test_http_tool_execute_calls_remote(monkeypatch):
+    result = SimpleNamespace(content=[SimpleNamespace(text="ok")])
+    captured = _patch_http_connection(monkeypatch, call_result=result)
+    cfg = MCPServerConfig(
+        name="remote", url="http://localhost:8000/mcp", transport="http"
+    )
+    tool = MCPTool("mcp_remote_ping", "ping", "d", {}, cfg)
+
+    out = await tool.execute(x=1)
+
+    assert out == "ok"
+    assert captured["url"] == "http://localhost:8000/mcp"
+    assert captured["session"].calls == [("ping", {"x": 1})]
+
+
+@pytest.mark.asyncio
+async def test_register_discovers_http_tools(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"remote": {"url": "http://localhost:8000/mcp"}}
+    }), encoding="utf-8")
+    _patch_http_connection(monkeypatch, tools=[_fake_tool("ping")])
+    registry = ToolRegistry()
+
+    await register_mcp_tools(registry, str(cfg_file))
+
+    assert registry.get("mcp_remote_ping") is not None
+
+
+@pytest.mark.asyncio
+async def test_register_degrades_when_http_server_fails(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "mcp.json"
+    cfg_file.write_text(json.dumps({
+        "mcpServers": {"remote": {"url": "http://localhost:8000/mcp"}}
+    }), encoding="utf-8")
+
+    def fake_http_client(url):
+        raise ConnectionError("unreachable")
+
+    monkeypatch.setattr(mcp_client, "streamablehttp_client", fake_http_client)
+    registry = ToolRegistry()
+
+    # 不抛异常
+    await register_mcp_tools(registry, str(cfg_file))
+
     assert registry.list_all() == []
