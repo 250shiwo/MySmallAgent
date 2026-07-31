@@ -229,3 +229,5 @@ mcp.json
 
 # 缓存
 .pytest_tmp
+
+.tmp_test
