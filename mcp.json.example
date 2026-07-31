@@ -3,6 +3,9 @@
     "everything": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    "remote-http": {
+      "url": "http://localhost:8000/mcp"
     }
   }
 }

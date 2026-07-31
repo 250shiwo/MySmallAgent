@@ -2,7 +2,7 @@
 MCP client 模块 - 连接外部 MCP server，把其 tools 包装为本地 Tool。
 
 设计：
-  - 仅 stdio 传输
+  - 支持 stdio 与 Streamable HTTP 两种传输（mcp.json 条目有 url 即 HTTP）
   - 每次调用即时连接（连→调→断，自包含），不维持持久连接
   - 全程降级不阻断：MCP 不可用时 agent 正常运行
 """
